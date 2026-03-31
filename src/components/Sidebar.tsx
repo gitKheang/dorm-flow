@@ -1,14 +1,15 @@
 'use client';
-import React from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from './ui/AppLogo';
 import {
   LayoutDashboard, BedDouble, Users, FileText, CreditCard,
   Wrench, ChevronLeft, ChevronRight, Settings, LogOut,
-  BarChart3, UtensilsCrossed, Building2, Bell
+  BarChart3, Building2, Bell, ChefHat
 } from 'lucide-react';
-import Icon from '@/components/ui/AppIcon';
+import { getRoleLabel, isModuleAvailable, type DemoSession, type UserRole } from '@/lib/demoSession';
+import { useDemoSession } from './DemoSessionProvider';
 
 
 interface SidebarProps {
@@ -16,36 +17,127 @@ interface SidebarProps {
   onToggleCollapse: () => void;
 }
 
-const navGroups = [
-  {
-    label: 'Operations',
-    items: [
-      { icon: LayoutDashboard, label: 'Dashboard', href: '/admin-dashboard', badge: null },
-      { icon: BedDouble, label: 'Rooms', href: '/room-management', badge: null },
-      { icon: Users, label: 'Tenants', href: '/tenants', badge: '12' },
-      { icon: FileText, label: 'Invoices', href: '/invoices', badge: '3' },
-      { icon: CreditCard, label: 'Payments', href: '/payments', badge: null },
-      { icon: Wrench, label: 'Maintenance', href: '/maintenance', badge: '5' },
-    ],
-  },
-  {
-    label: 'Analytics',
-    items: [
-      { icon: BarChart3, label: 'Reports', href: '/reports', badge: null },
-      { icon: Building2, label: 'Multi-Dorm', href: '/reports', badge: null },
-    ],
-  },
-  {
-    label: 'Services',
-    items: [
-      { icon: UtensilsCrossed, label: 'Meal Plans', href: '/chef-dashboard', badge: null },
-      { icon: Bell, label: 'Notifications', href: '/notifications', badge: '2' },
-    ],
-  },
-];
+interface NavItem {
+  icon: React.ElementType;
+  label: string;
+  href: string;
+  badge?: string | null;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+function getNavGroups(session: DemoSession) {
+  const { role } = session;
+  const hasNotifications = isModuleAvailable(session, 'notifications');
+  const hasMealService = isModuleAvailable(session, 'mealService');
+  const hasAnalytics = isModuleAvailable(session, 'analytics');
+  const hasMultiDorm = isModuleAvailable(session, 'multiDorm');
+
+  if (role === 'Tenant') {
+    const groups: NavGroup[] = [
+      {
+        label: 'My Stay',
+        items: [
+          { icon: LayoutDashboard, label: 'Dashboard', href: '/tenant-dashboard' },
+          { icon: FileText, label: 'My Invoices', href: '/invoices' },
+          { icon: Wrench, label: 'Maintenance', href: '/maintenance' },
+        ],
+      },
+      {
+        label: 'Account',
+        items: hasNotifications ? [{ icon: Bell, label: 'Notifications', href: '/notifications' }] : [],
+      },
+    ];
+
+    return groups.filter((group) => group.items.length > 0);
+  }
+
+  if (role === 'Chef') {
+    const groups: NavGroup[] = [
+      {
+        label: 'Kitchen',
+        items: hasMealService ? [{ icon: ChefHat, label: 'Kitchen Dashboard', href: '/chef-dashboard' }] : [],
+      },
+      {
+        label: 'Account',
+        items: hasNotifications ? [{ icon: Bell, label: 'Notifications', href: '/notifications' }] : [],
+      },
+    ];
+
+    return groups.filter((group) => group.items.length > 0);
+  }
+
+  const groups: NavGroup[] = [
+    {
+      label: 'Operations',
+      items: [
+        { icon: LayoutDashboard, label: 'Dashboard', href: '/admin-dashboard' },
+        { icon: BedDouble, label: 'Rooms', href: '/room-management' },
+        { icon: Users, label: 'People', href: '/tenants', badge: '12' },
+        { icon: FileText, label: 'Invoices', href: '/invoices', badge: '3' },
+        { icon: CreditCard, label: 'Payments', href: '/payments' },
+        { icon: Wrench, label: 'Maintenance', href: '/maintenance', badge: '5' },
+      ],
+    },
+    {
+      label: 'Analytics',
+      items: [
+        ...(hasAnalytics ? [{ icon: BarChart3, label: 'Reports', href: '/reports' }] : []),
+        ...(hasMultiDorm ? [{ icon: Building2, label: 'Multi-Dorm', href: '/multi-dorm' }] : []),
+      ],
+    },
+    {
+      label: 'Account',
+      items: hasNotifications ? [{ icon: Bell, label: 'Notifications', href: '/notifications', badge: '2' }] : [],
+    },
+  ];
+
+  return groups.filter((group) => group.items.length > 0);
+}
 
 export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { session, signOut } = useDemoSession();
+  const prefetchedRoutesRef = useRef<Set<string>>(new Set());
+  const navGroups = useMemo(() => {
+    if (!session) return [];
+    return getNavGroups(session);
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const routesToWarm = [
+      ...navGroups.flatMap((group) => group.items.map((item) => item.href)),
+      '/settings',
+    ].filter((href) => href !== pathname);
+
+    const timeoutId = window.setTimeout(() => {
+      routesToWarm.forEach((href) => {
+        if (prefetchedRoutesRef.current.has(href)) {
+          return;
+        }
+
+        router.prefetch(href);
+        prefetchedRoutesRef.current.add(href);
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [navGroups, pathname, router, session]);
+
+  if (!session) {
+    return null;
+  }
+
+  function handleSignOut() {
+    signOut();
+    router.push('/sign-up-login-screen');
+  }
 
   return (
     <div className="h-full flex flex-col bg-white border-r border-[hsl(var(--border))] sidebar-transition overflow-hidden">
@@ -56,7 +148,7 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             <AppLogo size={32} />
             <div className="min-w-0">
               <p className="font-semibold text-[15px] text-[hsl(var(--foreground))] truncate">DormFlow</p>
-              <p className="text-[11px] text-[hsl(var(--muted-foreground))] truncate">Sunrise Dorm</p>
+              <p className="text-[11px] text-[hsl(var(--muted-foreground))] truncate">{session.dormName}</p>
             </div>
           </div>
         )}
@@ -81,9 +173,10 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                 {group.label}
               </p>
             )}
-            <div className="space-y-0.5">
+              <div className="space-y-0.5">
               {group.items.map((item) => {
-                const isActive = pathname === item.href || (item.href !== '/admin-dashboard' && pathname.startsWith(item.href));
+                const isHomeRoute = item.href === session.homePath;
+                const isActive = pathname === item.href || (!isHomeRoute && pathname.startsWith(item.href));
                 const Icon = item.icon;
                 return (
                   <Link
@@ -132,19 +225,23 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             >
               <ChevronRight size={16} className="text-[hsl(var(--muted-foreground))]" />
             </button>
-            <Link href="/sign-up-login-screen" className="w-full p-2.5 flex justify-center rounded-lg hover:bg-[hsl(var(--muted))] transition-colors">
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full p-2.5 flex justify-center rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+            >
               <LogOut size={16} className="text-[hsl(var(--muted-foreground))]" />
-            </Link>
+            </button>
           </>
         ) : (
           <>
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg mb-1">
               <div className="w-8 h-8 rounded-full bg-[hsl(var(--primary))] flex items-center justify-center text-white text-[12px] font-semibold flex-shrink-0">
-                AD
+                {session.initials}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold text-[hsl(var(--foreground))] truncate">Admin User</p>
-                <p className="text-[11px] text-[hsl(var(--muted-foreground))] truncate">admin@dormflow.app</p>
+                <p className="text-[13px] font-semibold text-[hsl(var(--foreground))] truncate">{session.name}</p>
+                <p className="text-[11px] text-[hsl(var(--muted-foreground))] truncate">{getRoleLabel(session.role)}</p>
               </div>
             </div>
             <Link
@@ -154,13 +251,14 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               <Settings size={16} />
               <span>Settings</span>
             </Link>
-            <Link
-              href="/sign-up-login-screen"
+            <button
+              type="button"
+              onClick={handleSignOut}
               className="flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium text-[hsl(var(--muted-foreground))] hover:bg-red-50 hover:text-red-600 transition-colors"
             >
               <LogOut size={16} />
               <span>Sign out</span>
-            </Link>
+            </button>
           </>
         )}
       </div>

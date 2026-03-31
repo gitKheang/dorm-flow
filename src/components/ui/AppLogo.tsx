@@ -3,21 +3,24 @@
 import React, { memo, useMemo } from 'react';
 import AppIcon from './AppIcon';
 import AppImage from './AppImage';
+import DormFlowMark from './DormFlowMark';
 
 interface AppLogoProps {
   src?: string; // Image source (optional)
-  iconName?: string; // Icon name when no image
+  iconName?: string; // Optional icon name override
   size?: number; // Size for icon/image
   className?: string; // Additional classes
   onClick?: () => void; // Click handler
+  theme?: 'brand' | 'light';
 }
 
 const AppLogo = memo(function AppLogo({
   src,
-  iconName = 'SparklesIcon',
+  iconName,
   size = 64,
   className = '',
   onClick,
+  theme = 'brand',
 }: AppLogoProps) {
   // Memoize className calculation
   const containerClassName = useMemo(() => {
@@ -29,7 +32,7 @@ const AppLogo = memo(function AppLogo({
 
   return (
     <div className={containerClassName} onClick={onClick}>
-      {/* Show image if src provided, otherwise show icon */}
+      {/* Show image if src provided, otherwise render the dorm mark by default */}
       {src ? (
         <AppImage
           src={src}
@@ -40,8 +43,10 @@ const AppLogo = memo(function AppLogo({
           priority={true}
           unoptimized={src.endsWith('.svg')}
         />
-      ) : (
+      ) : iconName ? (
         <AppIcon name={iconName} size={size} className="flex-shrink-0" />
+      ) : (
+        <DormFlowMark size={size} theme={theme} className="flex-shrink-0" />
       )}
     </div>
   );

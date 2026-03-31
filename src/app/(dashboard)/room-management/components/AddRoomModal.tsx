@@ -1,7 +1,8 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { X, Loader2 } from 'lucide-react';
+import AppSelect, { AppSelectOption } from '@/components/ui/AppSelect';
 import { Room, RoomType, RoomStatus } from '@/lib/mockData';
 
 interface FormValues {
@@ -26,6 +27,7 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
   const [saving, setSaving] = React.useState(false);
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -50,6 +52,20 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
       amenities: 'WiFi, AC',
     },
   });
+
+  const roomTypeOptions: AppSelectOption[] = [
+    { value: 'Single', label: 'Single' },
+    { value: 'Double', label: 'Double' },
+    { value: 'Triple', label: 'Triple' },
+    { value: 'Suite', label: 'Suite' },
+  ];
+
+  const roomStatusOptions: AppSelectOption[] = [
+    { value: 'Available', label: 'Available' },
+    { value: 'Occupied', label: 'Occupied' },
+    { value: 'Under Maintenance', label: 'Under Maintenance' },
+    { value: 'Reserved', label: 'Reserved' },
+  ];
 
   useEffect(() => {
     if (room) {
@@ -143,14 +159,20 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
               <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">
                 Room Type <span className="text-red-500">*</span>
               </label>
-              <select
-                {...register('type', { required: true })}
-                className="w-full px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
-              >
-                {(['Single', 'Double', 'Triple', 'Suite'] as RoomType[]).map(t => (
-                  <option key={`modal-type-${t}`} value={t}>{t}</option>
-                ))}
-              </select>
+              <Controller
+                name="type"
+                control={control}
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <AppSelect
+                    ariaLabel="Room type"
+                    fullWidth
+                    value={field.value}
+                    options={roomTypeOptions}
+                    onChange={(value) => field.onChange(value as RoomType)}
+                  />
+                )}
+              />
             </div>
           </div>
 
@@ -213,14 +235,19 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
             <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">
               Initial Status <span className="text-red-500">*</span>
             </label>
-            <select
-              {...register('status')}
-              className="w-full px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
-            >
-              {(['Available', 'Occupied', 'Under Maintenance', 'Reserved'] as RoomStatus[]).map(s => (
-                <option key={`modal-status-${s}`} value={s}>{s}</option>
-              ))}
-            </select>
+            <Controller
+              name="status"
+              control={control}
+              render={({ field }) => (
+                <AppSelect
+                  ariaLabel="Initial room status"
+                  fullWidth
+                  value={field.value}
+                  options={roomStatusOptions}
+                  onChange={(value) => field.onChange(value as RoomStatus)}
+                />
+              )}
+            />
           </div>
 
           {/* Amenities */}

@@ -1,14 +1,57 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { canAccessPath } from '@/lib/demoSession';
 import Sidebar from './Sidebar';
+import { useDemoSession } from './DemoSessionProvider';
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
 export default function AppLayout({ children }: AppLayoutProps) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { isHydrated, session } = useDemoSession();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const accessState = useMemo(() => {
+    if (!isHydrated) return 'loading';
+    if (!session) return 'unauthenticated';
+    if (!canAccessPath(pathname, session)) return 'unauthorized';
+    return 'allowed';
+  }, [isHydrated, pathname, session]);
+
+  useEffect(() => {
+    if (accessState === 'unauthenticated') {
+      router.replace('/sign-up-login-screen');
+      return;
+    }
+
+    if (accessState === 'unauthorized' && session) {
+      router.replace(session.homePath);
+    }
+  }, [accessState, router, session]);
+
+  if (accessState !== 'allowed' || !session) {
+    const statusMessage =
+      accessState === 'unauthenticated'
+        ? 'Redirecting to sign in...'
+        : accessState === 'unauthorized'
+          ? 'Redirecting to your workspace...'
+          : 'Loading your workspace...';
+
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--background))] px-6">
+        <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border))] bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[hsl(var(--border))] border-t-[hsl(var(--primary))]" />
+          <h1 className="text-lg font-semibold text-[hsl(var(--foreground))]">DormFlow</h1>
+          <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">{statusMessage}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[hsl(var(--background))] overflow-hidden">
@@ -48,7 +91,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <path d="M3 5h14M3 10h14M3 15h14" strokeLinecap="round" />
             </svg>
           </button>
-          <span className="font-semibold text-[hsl(var(--foreground))]">DormFlow</span>
+          <div className="min-w-0">
+            <span className="block font-semibold text-[hsl(var(--foreground))]">DormFlow</span>
+            <span className="block truncate text-[11px] text-[hsl(var(--muted-foreground))]">{session.dormName}</span>
+          </div>
         </div>
 
         {/* Scrollable content area */}

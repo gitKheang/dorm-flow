@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, Search, SlidersHorizontal, Download, Trash2, Edit2, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+import AppSelect from '@/components/ui/AppSelect';
 import { mockRooms, Room, RoomStatus, RoomType } from '@/lib/mockData';
 import AddRoomModal from './AddRoomModal';
 import RoomStatusBadge from './RoomStatusBadge';
@@ -116,6 +117,21 @@ export default function RoomManagementClient() {
     Reserved: rooms.filter(r => r.status === 'Reserved').length,
   }), [rooms]);
 
+  const roomTypeOptions = useMemo(
+    () => [{ value: 'All', label: 'All Types' }, ...(['Single', 'Double', 'Triple', 'Suite'] as RoomType[]).map((type) => ({ value: type, label: type }))],
+    [],
+  );
+
+  const floorOptions = useMemo(
+    () => [{ value: 'All', label: 'All Floors' }, ...floors.map((floor) => ({ value: String(floor), label: `Floor ${floor}` }))],
+    [floors],
+  );
+
+  const pageSizeOptions = useMemo(
+    () => PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) })),
+    [],
+  );
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -192,26 +208,26 @@ export default function RoomManagementClient() {
         </button>
         {showFilters && (
           <div className="flex items-center gap-2 w-full flex-wrap slide-up">
-            <select
+            <AppSelect
+              ariaLabel="Filter by room type"
               value={filterType}
-              onChange={e => { setFilterType(e.target.value as RoomType | 'All'); setPage(1); }}
-              className="px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
-            >
-              <option value="All">All Types</option>
-              {(['Single', 'Double', 'Triple', 'Suite'] as RoomType[]).map(t => (
-                <option key={`type-opt-${t}`} value={t}>{t}</option>
-              ))}
-            </select>
-            <select
-              value={filterFloor}
-              onChange={e => { setFilterFloor(e.target.value === 'All' ? 'All' : Number(e.target.value)); setPage(1); }}
-              className="px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
-            >
-              <option value="All">All Floors</option>
-              {floors.map(f => (
-                <option key={`floor-opt-${f}`} value={f}>Floor {f}</option>
-              ))}
-            </select>
+              options={roomTypeOptions}
+              onChange={(value) => {
+                setFilterType(value as RoomType | 'All');
+                setPage(1);
+              }}
+              triggerClassName="min-w-[148px] py-2"
+            />
+            <AppSelect
+              ariaLabel="Filter by floor"
+              value={String(filterFloor)}
+              options={floorOptions}
+              onChange={(value) => {
+                setFilterFloor(value === 'All' ? 'All' : Number(value));
+                setPage(1);
+              }}
+              triggerClassName="min-w-[148px] py-2"
+            />
             {(filterType !== 'All' || filterFloor !== 'All') && (
               <button
                 onClick={() => { setFilterType('All'); setFilterFloor('All'); }}
@@ -421,15 +437,16 @@ export default function RoomManagementClient() {
           <div className="flex items-center justify-between px-4 py-3 border-t border-[hsl(var(--border))]">
             <div className="flex items-center gap-2 text-[13px] text-[hsl(var(--muted-foreground))]">
               <span>Rows per page:</span>
-              <select
-                value={pageSize}
-                onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
-                className="px-2 py-1 border border-[hsl(var(--border))] rounded-lg text-[13px] bg-white focus:outline-none"
-              >
-                {PAGE_SIZE_OPTIONS.map(s => (
-                  <option key={`pagesize-${s}`} value={s}>{s}</option>
-                ))}
-              </select>
+              <AppSelect
+                ariaLabel="Rows per page"
+                value={String(pageSize)}
+                options={pageSizeOptions}
+                onChange={(value) => {
+                  setPageSize(Number(value));
+                  setPage(1);
+                }}
+                triggerClassName="min-w-[76px] px-2 py-1 text-[13px]"
+              />
               <span className="tabular-nums">
                 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} of {filtered.length}
               </span>

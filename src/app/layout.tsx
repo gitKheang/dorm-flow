@@ -2,6 +2,8 @@ import React from 'react';
 import type { Metadata, Viewport } from 'next';
 import '../styles/tailwind.css';
 import { Toaster } from 'sonner';
+import DemoSessionProvider from '@/components/DemoSessionProvider';
+import DemoWorkspaceProvider from '@/components/DemoWorkspaceProvider';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -12,7 +14,7 @@ export const metadata: Metadata = {
   title: 'DormFlow — Dormitory Management Made Simple',
   description: 'DormFlow helps dormitory operators manage rooms, tenants, invoices, payments, and maintenance from a single role-specific dashboard.',
   icons: {
-    icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],
+    icon: [{ url: '/dormflow-mark.svg', type: 'image/svg+xml' }],
   },
 };
 
@@ -22,8 +24,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {children}
-        <Toaster position="bottom-right" richColors closeButton />
+        <DemoWorkspaceProvider>
+          <DemoSessionProvider>
+            {children}
+            <Toaster position="bottom-right" richColors closeButton />
+          </DemoSessionProvider>
+        </DemoWorkspaceProvider>
       </body>
     </html>
   );

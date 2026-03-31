@@ -1,7 +1,11 @@
 'use client';
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { ChefHat, UtensilsCrossed, Users, Clock, CheckCircle2, AlertTriangle, Plus, Trash2, CalendarDays, Flame } from 'lucide-react';
 import { toast } from 'sonner';
+import { useDemoSession } from '@/components/DemoSessionProvider';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import AppSelect from '@/components/ui/AppSelect';
 
 interface MealItem {
   id: string;
@@ -16,6 +20,11 @@ interface MealItem {
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack'] as const;
+const MEAL_STATUS_OPTIONS = [
+  { value: 'Planned', label: 'Planned' },
+  { value: 'In Prep', label: 'In Prep' },
+  { value: 'Served', label: 'Served' },
+];
 
 const initialMeals: MealItem[] = [
   { id: 'meal-001', name: 'Scrambled Eggs & Toast', category: 'Breakfast', day: 'Monday', servings: 45, dietary: ['Vegetarian'], status: 'Served', calories: 380 },
@@ -43,6 +52,8 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function ChefDashboardPage() {
+  const { session } = useDemoSession();
+  const { hasModule, workspace } = useDemoWorkspace();
   const [meals, setMeals] = useState<MealItem[]>(initialMeals);
   const [selectedDay, setSelectedDay] = useState('Monday');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -52,15 +63,21 @@ export default function ChefDashboardPage() {
   const [newMealCalories, setNewMealCalories] = useState(500);
 
   const todayMeals = meals.filter(m => m.day === selectedDay);
+  const mealServiceEnabled = hasModule('mealService');
   const totalServings = meals.reduce((s, m) => s + m.servings, 0);
   const mealsServed = meals.filter(m => m.status === 'Served').length;
   const inPrep = meals.filter(m => m.status === 'In Prep').length;
   const planned = meals.filter(m => m.status === 'Planned').length;
+  const subscribedResidents = workspace.tenantMealPreferences.filter((preference) => preference.plan !== 'No Meal Plan');
+  const breakfastDemand = subscribedResidents.filter((preference) => preference.plan === 'Breakfast Only' || preference.plan === 'Full Board').length;
+  const lunchDinnerDemand = subscribedResidents.filter((preference) => preference.plan === 'Half Board' || preference.plan === 'Full Board').length;
 
   const dietaryBreakdown = meals.reduce((acc, m) => {
     m.dietary.forEach(d => { acc[d] = (acc[d] || 0) + 1; });
     return acc;
   }, {} as Record<string, number>);
+
+  const categoryOptions = CATEGORIES.map((category) => ({ value: category, label: category }));
 
   function handleStatusChange(id: string, status: MealItem['status']) {
     setMeals(prev => prev.map(m => m.id === id ? { ...m, status } : m));
@@ -91,6 +108,31 @@ export default function ChefDashboardPage() {
     toast.success(`${newMealName} added to ${selectedDay}'s plan`);
   }
 
+  if (!mealServiceEnabled) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Kitchen Dashboard</h1>
+          <p className="mt-0.5 text-[14px] text-[hsl(var(--muted-foreground))]">
+            Chef Portal — {session?.dormName ?? 'Sunrise Dormitory'}
+          </p>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+          <h2 className="text-[16px] font-semibold text-amber-900">Meal service is currently disabled</h2>
+          <p className="mt-2 text-[13px] text-amber-800">
+            The dorm owner has paused meal service, so kitchen operations are hidden until that module is turned back on.
+          </p>
+          <Link
+            href="/settings"
+            className="mt-4 inline-flex rounded-lg bg-white px-4 py-2.5 text-[13px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
+          >
+            Open Settings
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     
       <div className="space-y-8">
@@ -99,7 +141,7 @@ export default function ChefDashboardPage() {
           <div>
             <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Kitchen Dashboard</h1>
             <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              Chef Portal — Sunrise Dormitory
+              Chef Portal — {session?.dormName ?? 'Sunrise Dormitory'}
             </p>
           </div>
           <button
@@ -150,8 +192,8 @@ export default function ChefDashboardPage() {
                 <Users size={16} className="text-blue-600" />
               </div>
             </div>
-            <p className="text-2xl font-700 text-[hsl(var(--foreground))]">{totalServings}</p>
-            <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Total servings planned</p>
+            <p className="text-2xl font-700 text-[hsl(var(--foreground))]">{subscribedResidents.length}</p>
+            <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Residents on meal plans</p>
           </div>
         </div>
 
@@ -197,13 +239,14 @@ export default function ChefDashboardPage() {
                     className="col-span-2 px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
                     required
                   />
-                  <select
+                  <AppSelect
+                    ariaLabel="Meal category"
                     value={newMealCategory}
-                    onChange={e => setNewMealCategory(e.target.value as typeof CATEGORIES[number])}
-                    className="px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
-                  >
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                    options={categoryOptions}
+                    onChange={(value) => setNewMealCategory(value as typeof CATEGORIES[number])}
+                    fullWidth
+                    triggerClassName="py-2"
+                  />
                   <input
                     type="number"
                     value={newMealServings}
@@ -251,15 +294,14 @@ export default function ChefDashboardPage() {
                               ))}
                             </div>
                           </div>
-                          <select
+                          <AppSelect
+                            ariaLabel={`Meal status for ${meal.name}`}
                             value={meal.status}
-                            onChange={e => handleStatusChange(meal.id, e.target.value as MealItem['status'])}
-                            className={`text-[11px] font-medium px-2 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] ${statusColors[meal.status]}`}
-                          >
-                            <option value="Planned">Planned</option>
-                            <option value="In Prep">In Prep</option>
-                            <option value="Served">Served</option>
-                          </select>
+                            options={MEAL_STATUS_OPTIONS}
+                            onChange={(value) => handleStatusChange(meal.id, value as MealItem['status'])}
+                            triggerClassName={`min-w-[104px] border-0 px-2 py-1 text-[11px] ${statusColors[meal.status]}`}
+                            menuClassName="min-w-[128px]"
+                          />
                           <button
                             onClick={() => handleDeleteMeal(meal.id)}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-[hsl(var(--muted-foreground))] hover:text-red-600 transition-colors"
@@ -315,11 +357,46 @@ export default function ChefDashboardPage() {
                   <span className="font-medium">{todayMeals.reduce((s, m) => s + m.servings, 0)}</span>
                 </div>
                 <div className="flex justify-between text-[13px]">
+                  <span className="text-[hsl(var(--muted-foreground))]">Breakfast demand</span>
+                  <span className="font-medium">{breakfastDemand}</span>
+                </div>
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-[hsl(var(--muted-foreground))]">Lunch / dinner demand</span>
+                  <span className="font-medium">{lunchDinnerDemand}</span>
+                </div>
+                <div className="flex justify-between text-[13px]">
                   <span className="text-[hsl(var(--muted-foreground))]">Avg calories</span>
                   <span className="font-medium">
                     {todayMeals.length > 0 ? Math.round(todayMeals.reduce((s, m) => s + m.calories, 0) / todayMeals.length) : 0} kcal
                   </span>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-5 space-y-4">
+              <h3 className="text-[14px] font-semibold text-[hsl(var(--foreground))]">Resident Meal Notes</h3>
+              <div className="space-y-3">
+                {subscribedResidents.length === 0 && (
+                  <p className="text-[13px] text-[hsl(var(--muted-foreground))]">No residents are currently enrolled in meal service.</p>
+                )}
+                {subscribedResidents.map((preference) => {
+                  const tenant = workspace.tenants.find((item) => item.id === preference.tenantId);
+                  if (!tenant) return null;
+
+                  return (
+                    <div key={preference.tenantId} className="rounded-lg border border-[hsl(var(--border))] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">{tenant.name}</p>
+                        <span className="rounded-full bg-[hsl(var(--muted))] px-2 py-0.5 text-[11px] text-[hsl(var(--muted-foreground))]">
+                          {preference.plan}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">
+                        {preference.notes || 'No kitchen notes provided.'}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

@@ -1,22 +1,37 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BedDouble, CreditCard, Wrench, CheckCircle2, AlertTriangle, ChevronRight, Plus, Home, Wifi, Wind, Bath, UtensilsCrossed } from 'lucide-react';
-import { mockTenants, mockInvoices, mockMaintenanceTickets, mockRooms } from '@/lib/mockData';
+import { useDemoSession } from '@/components/DemoSessionProvider';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import AppSelect from '@/components/ui/AppSelect';
+import { mockInvoices, mockMaintenanceTickets, mockRooms } from '@/lib/mockData';
 import { toast } from 'sonner';
 
-const CURRENT_TENANT_ID = 'tenant-001';
+const mealPlanOptions = [
+  { value: 'No Meal Plan', label: 'No Meal Plan' },
+  { value: 'Breakfast Only', label: 'Breakfast Only' },
+  { value: 'Half Board', label: 'Half Board' },
+  { value: 'Full Board', label: 'Full Board' },
+];
 
 export default function TenantDashboardPage() {
-  const tenant = mockTenants.find(t => t.id === CURRENT_TENANT_ID)!;
+  const { session } = useDemoSession();
+  const { hasModule, setTenantMealPreference, workspace } = useDemoWorkspace();
+  const currentTenantId = session?.tenantId ?? 'tenant-001';
+  const tenant = workspace.tenants.find((item) => item.id === currentTenantId);
   const room = mockRooms.find(r => r.id === tenant?.roomId);
-  const invoices = mockInvoices.filter(i => i.tenantId === CURRENT_TENANT_ID);
+  const invoices = mockInvoices.filter(i => i.tenantId === currentTenantId);
   const tickets = mockMaintenanceTickets.filter(t => t.tenantName === tenant?.name);
+  const mealServiceEnabled = hasModule('mealService');
+  const currentMealPreference = workspace.tenantMealPreferences.find((preference) => preference.tenantId === currentTenantId);
 
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [requestTitle, setRequestTitle] = useState('');
   const [requestDesc, setRequestDesc] = useState('');
   const [requestCategory, setRequestCategory] = useState('Plumbing');
+  const [mealPlan, setMealPlan] = useState(currentMealPreference?.plan ?? 'No Meal Plan');
+  const [mealNotes, setMealNotes] = useState(currentMealPreference?.notes ?? '');
 
   const overdueInvoice = invoices.find(i => i.status === 'Overdue');
   const pendingInvoice = invoices.find(i => i.status === 'Issued');
@@ -36,6 +51,19 @@ export default function TenantDashboardPage() {
     setRequestTitle('');
     setRequestDesc('');
     setShowRequestForm(false);
+  }
+
+  useEffect(() => {
+    setMealPlan(currentMealPreference?.plan ?? 'No Meal Plan');
+    setMealNotes(currentMealPreference?.notes ?? '');
+  }, [currentMealPreference]);
+
+  function handleSaveMealPlan() {
+    setTenantMealPreference(currentTenantId, {
+      plan: mealPlan as 'No Meal Plan' | 'Breakfast Only' | 'Half Board' | 'Full Board',
+      notes: mealNotes.trim(),
+    });
+    toast.success('Meal preference updated');
   }
 
   const statusColors: Record<string, string> = {
@@ -61,7 +89,7 @@ export default function TenantDashboardPage() {
               Welcome back, {tenant?.name?.split(' ')[0]}
             </h1>
             <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              Tenant Portal — Sunrise Dormitory
+              Tenant Portal — {session?.dormName ?? 'Sunrise Dormitory'}
             </p>
           </div>
           {overdueInvoice && (
@@ -229,15 +257,17 @@ export default function TenantDashboardPage() {
                   className="w-full px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
                   required
                 />
-                <select
+                <AppSelect
+                  ariaLabel="Maintenance category"
+                  fullWidth
                   value={requestCategory}
-                  onChange={e => setRequestCategory(e.target.value)}
-                  className="w-full px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
-                >
-                  {['Plumbing', 'Electrical', 'HVAC', 'Structural', 'Furniture', 'Other'].map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+                  options={['Plumbing', 'Electrical', 'HVAC', 'Structural', 'Furniture', 'Other'].map((category) => ({
+                    value: category,
+                    label: category,
+                  }))}
+                  onChange={setRequestCategory}
+                  triggerClassName="py-2"
+                />
                 <textarea
                   value={requestDesc}
                   onChange={e => setRequestDesc(e.target.value)}
@@ -292,6 +322,58 @@ export default function TenantDashboardPage() {
                   <span className="text-[13px] font-medium text-[hsl(var(--foreground))]">{name}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {mealServiceEnabled && (
+          <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6 space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Meal Service</h2>
+                <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">
+                  Set the meal plan the kitchen team should prepare for your stay.
+                </p>
+              </div>
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                mealPlan === 'No Meal Plan' ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-700'
+              }`}>
+                {mealPlan}
+              </span>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Meal plan</label>
+                <AppSelect
+                  ariaLabel="Tenant meal plan"
+                  fullWidth
+                  value={mealPlan}
+                  options={mealPlanOptions}
+                  onChange={(value) => setMealPlan(value as 'No Meal Plan' | 'Breakfast Only' | 'Half Board' | 'Full Board')}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Notes for kitchen team</label>
+                <textarea
+                  value={mealNotes}
+                  onChange={(event) => setMealNotes(event.target.value)}
+                  rows={3}
+                  placeholder="Add dietary preferences, preferred service windows, or anything the chef should know."
+                  className="w-full rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSaveMealPlan}
+                className="rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)]"
+              >
+                Save Meal Preference
+              </button>
+              <p className="self-center text-[12px] text-[hsl(var(--muted-foreground))]">
+                Changes appear in the chef workspace immediately.
+              </p>
             </div>
           </div>
         )}
