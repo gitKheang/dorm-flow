@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDemoSession } from '@/components/DemoSessionProvider';
-import { Invoice, InvoiceStatus, mockInvoices } from '@/lib/mockData';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import type { Invoice } from '@/lib/mockData';
+import { InvoiceStatus } from '@/lib/mockData';
 
 const statusColors: Record<InvoiceStatus, string> = {
   Paid: 'bg-green-100 text-green-700',
@@ -143,11 +145,12 @@ function TenantInvoicesView({
 
 export default function InvoicesClient() {
   const { session } = useDemoSession();
+  const { currentDorm, currentDormInvoices, generateInvoices, workspace } = useDemoWorkspace();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<InvoiceStatus | 'All'>('All');
 
   const filtered = useMemo(() => {
-    return mockInvoices.filter((invoice) => {
+    return currentDormInvoices.filter((invoice) => {
       const query = search.toLowerCase();
       const matchSearch =
         !query ||
@@ -157,12 +160,12 @@ export default function InvoicesClient() {
       const matchStatus = filterStatus === 'All' || invoice.status === filterStatus;
       return matchSearch && matchStatus;
     });
-  }, [filterStatus, search]);
+  }, [currentDormInvoices, filterStatus, search]);
 
   const tenantInvoices = useMemo(() => {
     if (session?.role !== 'Tenant' || !session.tenantId) return [];
-    return mockInvoices.filter((invoice) => invoice.tenantId === session.tenantId);
-  }, [session]);
+    return workspace.invoices.filter((invoice) => invoice.tenantId === session.tenantId);
+  }, [session, workspace.invoices]);
 
   if (!session) {
     return null;
@@ -172,9 +175,9 @@ export default function InvoicesClient() {
     return <TenantInvoicesView invoices={tenantInvoices} roomNumber={session.roomNumber} />;
   }
 
-  const totalPaid = mockInvoices.filter((invoice) => invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
-  const totalOverdue = mockInvoices.filter((invoice) => invoice.status === 'Overdue').reduce((sum, invoice) => sum + invoice.amount, 0);
-  const totalIssued = mockInvoices.filter((invoice) => invoice.status === 'Issued').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const totalPaid = currentDormInvoices.filter((invoice) => invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const totalOverdue = currentDormInvoices.filter((invoice) => invoice.status === 'Overdue').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const totalIssued = currentDormInvoices.filter((invoice) => invoice.status === 'Issued').reduce((sum, invoice) => sum + invoice.amount, 0);
 
   return (
     <div className="space-y-6">
@@ -182,7 +185,7 @@ export default function InvoicesClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Invoices</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            {mockInvoices.length} invoices total
+            {currentDorm?.name ?? 'Dorm'} · {currentDormInvoices.length} invoices total
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -194,7 +197,14 @@ export default function InvoicesClient() {
             Export
           </button>
           <button
-            onClick={() => toast.info('Generate invoices feature coming soon')}
+            onClick={() => {
+              const createdCount = generateInvoices();
+              if (createdCount === 0) {
+                toast.info('All active residents already have the next billing cycle prepared.');
+                return;
+              }
+              toast.success(`${createdCount} invoice${createdCount === 1 ? '' : 's'} generated for May 2026`);
+            }}
             className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors"
           >
             <Plus size={15} />
@@ -210,7 +220,7 @@ export default function InvoicesClient() {
             <span className="text-[12px] font-medium text-green-700 uppercase tracking-wider">Collected</span>
           </div>
           <p className="text-2xl font-700 text-green-800">${totalPaid.toLocaleString()}</p>
-          <p className="text-[12px] text-green-600 mt-1">{mockInvoices.filter((invoice) => invoice.status === 'Paid').length} invoices paid</p>
+          <p className="text-[12px] text-green-600 mt-1">{currentDormInvoices.filter((invoice) => invoice.status === 'Paid').length} invoices paid</p>
         </div>
         <div className="bg-red-50 border border-red-200 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-2">
@@ -218,7 +228,7 @@ export default function InvoicesClient() {
             <span className="text-[12px] font-medium text-red-700 uppercase tracking-wider">Overdue</span>
           </div>
           <p className="text-2xl font-700 text-red-800">${totalOverdue.toLocaleString()}</p>
-          <p className="text-[12px] text-red-600 mt-1">{mockInvoices.filter((invoice) => invoice.status === 'Overdue').length} invoices overdue</p>
+          <p className="text-[12px] text-red-600 mt-1">{currentDormInvoices.filter((invoice) => invoice.status === 'Overdue').length} invoices overdue</p>
         </div>
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-2">
@@ -226,7 +236,7 @@ export default function InvoicesClient() {
             <span className="text-[12px] font-medium text-blue-700 uppercase tracking-wider">Pending</span>
           </div>
           <p className="text-2xl font-700 text-blue-800">${totalIssued.toLocaleString()}</p>
-          <p className="text-[12px] text-blue-600 mt-1">{mockInvoices.filter((invoice) => invoice.status === 'Issued').length} invoices issued</p>
+          <p className="text-[12px] text-blue-600 mt-1">{currentDormInvoices.filter((invoice) => invoice.status === 'Issued').length} invoices issued</p>
         </div>
       </div>
 
@@ -310,8 +320,8 @@ export default function InvoicesClient() {
           </div>
         )}
         <div className="px-5 py-3 border-t border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)]">
-          <p className="text-[12px] text-[hsl(var(--muted-foreground))]">
-            Showing {filtered.length} of {mockInvoices.length} invoices
+            <p className="text-[12px] text-[hsl(var(--muted-foreground))]">
+            Showing {filtered.length} of {currentDormInvoices.length} invoices
           </p>
         </div>
       </div>

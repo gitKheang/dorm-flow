@@ -6,17 +6,7 @@ import { toast } from 'sonner';
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AppSelect from '@/components/ui/AppSelect';
-
-interface MealItem {
-  id: string;
-  name: string;
-  category: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
-  day: string;
-  servings: number;
-  dietary: string[];
-  status: 'Planned' | 'In Prep' | 'Served';
-  calories: number;
-}
+import type { MealItemRecord } from '@/lib/demoWorkspace';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Snack'] as const;
@@ -24,18 +14,6 @@ const MEAL_STATUS_OPTIONS = [
   { value: 'Planned', label: 'Planned' },
   { value: 'In Prep', label: 'In Prep' },
   { value: 'Served', label: 'Served' },
-];
-
-const initialMeals: MealItem[] = [
-  { id: 'meal-001', name: 'Scrambled Eggs & Toast', category: 'Breakfast', day: 'Monday', servings: 45, dietary: ['Vegetarian'], status: 'Served', calories: 380 },
-  { id: 'meal-002', name: 'Grilled Chicken Rice Bowl', category: 'Lunch', day: 'Monday', servings: 50, dietary: ['Gluten-Free', 'High Protein'], status: 'Served', calories: 620 },
-  { id: 'meal-003', name: 'Beef Stew with Bread', category: 'Dinner', day: 'Monday', servings: 48, dietary: [], status: 'Served', calories: 780 },
-  { id: 'meal-004', name: 'Oatmeal with Fruits', category: 'Breakfast', day: 'Tuesday', servings: 42, dietary: ['Vegan', 'Gluten-Free'], status: 'Served', calories: 320 },
-  { id: 'meal-005', name: 'Veggie Pasta Salad', category: 'Lunch', day: 'Tuesday', servings: 50, dietary: ['Vegetarian'], status: 'Served', calories: 480 },
-  { id: 'meal-006', name: 'Salmon with Steamed Veg', category: 'Dinner', day: 'Tuesday', servings: 46, dietary: ['Gluten-Free', 'High Protein'], status: 'In Prep', calories: 650 },
-  { id: 'meal-007', name: 'Pancakes with Syrup', category: 'Breakfast', day: 'Wednesday', servings: 50, dietary: ['Vegetarian'], status: 'Planned', calories: 420 },
-  { id: 'meal-008', name: 'Chicken Wrap', category: 'Lunch', day: 'Wednesday', servings: 50, dietary: ['High Protein'], status: 'Planned', calories: 540 },
-  { id: 'meal-009', name: 'Lentil Curry & Rice', category: 'Dinner', day: 'Wednesday', servings: 50, dietary: ['Vegan', 'Gluten-Free'], status: 'Planned', calories: 590 },
 ];
 
 const statusColors: Record<string, string> = {
@@ -53,8 +31,15 @@ const categoryColors: Record<string, string> = {
 
 export default function ChefDashboardPage() {
   const { session } = useDemoSession();
-  const { hasModule, workspace } = useDemoWorkspace();
-  const [meals, setMeals] = useState<MealItem[]>(initialMeals);
+  const {
+    addMeal,
+    currentDormMeals,
+    currentDormTenants,
+    deleteMeal,
+    hasModule,
+    updateMealStatus,
+    workspace,
+  } = useDemoWorkspace();
   const [selectedDay, setSelectedDay] = useState('Monday');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newMealName, setNewMealName] = useState('');
@@ -62,13 +47,17 @@ export default function ChefDashboardPage() {
   const [newMealServings, setNewMealServings] = useState(50);
   const [newMealCalories, setNewMealCalories] = useState(500);
 
+  const meals = currentDormMeals;
   const todayMeals = meals.filter(m => m.day === selectedDay);
   const mealServiceEnabled = hasModule('mealService');
   const totalServings = meals.reduce((s, m) => s + m.servings, 0);
   const mealsServed = meals.filter(m => m.status === 'Served').length;
   const inPrep = meals.filter(m => m.status === 'In Prep').length;
   const planned = meals.filter(m => m.status === 'Planned').length;
-  const subscribedResidents = workspace.tenantMealPreferences.filter((preference) => preference.plan !== 'No Meal Plan');
+  const subscribedResidents = workspace.tenantMealPreferences.filter((preference) => {
+    const tenant = currentDormTenants.find((item) => item.id === preference.tenantId);
+    return tenant && preference.plan !== 'No Meal Plan';
+  });
   const breakfastDemand = subscribedResidents.filter((preference) => preference.plan === 'Breakfast Only' || preference.plan === 'Full Board').length;
   const lunchDinnerDemand = subscribedResidents.filter((preference) => preference.plan === 'Half Board' || preference.plan === 'Full Board').length;
 
@@ -79,30 +68,26 @@ export default function ChefDashboardPage() {
 
   const categoryOptions = CATEGORIES.map((category) => ({ value: category, label: category }));
 
-  function handleStatusChange(id: string, status: MealItem['status']) {
-    setMeals(prev => prev.map(m => m.id === id ? { ...m, status } : m));
+  function handleStatusChange(id: string, status: MealItemRecord['status']) {
+    updateMealStatus(id, status);
     toast.success('Meal status updated');
   }
 
   function handleDeleteMeal(id: string) {
-    setMeals(prev => prev.filter(m => m.id !== id));
+    deleteMeal(id);
     toast.success('Meal removed from plan');
   }
 
   function handleAddMeal(e: React.FormEvent) {
     e.preventDefault();
     if (!newMealName.trim()) return;
-    const newMeal: MealItem = {
-      id: `meal-${Date.now()}`,
-      name: newMealName,
+    addMeal({
+      name: newMealName.trim(),
       category: newMealCategory,
       day: selectedDay,
       servings: newMealServings,
-      dietary: [],
-      status: 'Planned',
       calories: newMealCalories,
-    };
-    setMeals(prev => [...prev, newMeal]);
+    });
     setNewMealName('');
     setShowAddForm(false);
     toast.success(`${newMealName} added to ${selectedDay}'s plan`);
@@ -298,7 +283,7 @@ export default function ChefDashboardPage() {
                             ariaLabel={`Meal status for ${meal.name}`}
                             value={meal.status}
                             options={MEAL_STATUS_OPTIONS}
-                            onChange={(value) => handleStatusChange(meal.id, value as MealItem['status'])}
+                            onChange={(value) => handleStatusChange(meal.id, value as MealItemRecord['status'])}
                             triggerClassName={`min-w-[104px] border-0 px-2 py-1 text-[11px] ${statusColors[meal.status]}`}
                             menuClassName="min-w-[128px]"
                           />
@@ -380,7 +365,7 @@ export default function ChefDashboardPage() {
                   <p className="text-[13px] text-[hsl(var(--muted-foreground))]">No residents are currently enrolled in meal service.</p>
                 )}
                 {subscribedResidents.map((preference) => {
-                  const tenant = workspace.tenants.find((item) => item.id === preference.tenantId);
+                  const tenant = currentDormTenants.find((item) => item.id === preference.tenantId);
                   if (!tenant) return null;
 
                   return (

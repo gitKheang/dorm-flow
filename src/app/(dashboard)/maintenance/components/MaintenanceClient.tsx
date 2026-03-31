@@ -4,13 +4,12 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Plus, Search, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDemoSession } from '@/components/DemoSessionProvider';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AppSelect from '@/components/ui/AppSelect';
 import {
   MaintenancePriority,
   MaintenanceStatus,
   MaintenanceTicket,
-  mockMaintenanceTickets,
-  mockTenants,
 } from '@/lib/mockData';
 
 const priorityColors: Record<MaintenancePriority, string> = {
@@ -53,17 +52,17 @@ const MAINTENANCE_WORKFLOW_OPTIONS = [
 ];
 
 function TenantMaintenanceView({
+  addMaintenanceTicket,
   sessionName,
   roomNumber,
   roomId,
   tickets,
-  setTickets,
 }: {
+  addMaintenanceTicket: ReturnType<typeof useDemoWorkspace>['addMaintenanceTicket'];
   sessionName: string;
   roomNumber?: string;
   roomId?: string;
   tickets: MaintenanceTicket[];
-  setTickets: React.Dispatch<React.SetStateAction<MaintenanceTicket[]>>;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
@@ -79,23 +78,15 @@ function TenantMaintenanceView({
     event.preventDefault();
     if (!title.trim()) return;
 
-    const submittedDate = '2026-03-26';
-    setTickets((currentTickets) => [
-      {
-        id: `maint-${Date.now()}`,
-        title,
-        roomId: roomId ?? 'room-001',
-        roomNumber: roomNumber ?? 'N/A',
-        tenantName: sessionName,
-        priority: 'Medium',
-        status: 'Open',
-        submittedDate,
-        updatedDate: submittedDate,
-        description: description.trim() || 'No extra details provided.',
-        category,
-      },
-      ...currentTickets,
-    ]);
+    addMaintenanceTicket({
+      title,
+      roomId: roomId ?? 'room-001',
+      roomNumber: roomNumber ?? 'N/A',
+      tenantName: sessionName,
+      description: description.trim() || 'No extra details provided.',
+      category,
+      priority: 'Medium',
+    });
 
     toast.success('Maintenance request submitted');
     setTitle('');
@@ -234,10 +225,17 @@ function TenantMaintenanceView({
 
 export default function MaintenanceClient() {
   const { session } = useDemoSession();
-  const [tickets, setTickets] = useState(mockMaintenanceTickets);
+  const {
+    addMaintenanceTicket,
+    currentDorm,
+    currentDormMaintenanceTickets,
+    currentDormTenants,
+    updateMaintenanceStatus,
+  } = useDemoWorkspace();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<MaintenanceStatus | 'All'>('All');
   const [filterPriority, setFilterPriority] = useState<MaintenancePriority | 'All'>('All');
+  const tickets = currentDormMaintenanceTickets;
 
   const filtered = useMemo(() => {
     return tickets.filter((ticket) => {
@@ -258,25 +256,23 @@ export default function MaintenanceClient() {
   }
 
   if (session.role === 'Tenant') {
-    const tenantRecord = session.tenantId
-      ? mockTenants.find((tenant) => tenant.id === session.tenantId)
+      const tenantRecord = session.tenantId
+      ? currentDormTenants.find((tenant) => tenant.id === session.tenantId)
       : undefined;
 
     return (
       <TenantMaintenanceView
+        addMaintenanceTicket={addMaintenanceTicket}
         sessionName={session.name}
         roomNumber={session.roomNumber}
         roomId={tenantRecord?.roomId}
         tickets={tickets}
-        setTickets={setTickets}
       />
     );
   }
 
   function handleStatusChange(id: string, status: MaintenanceStatus) {
-    setTickets((currentTickets) =>
-      currentTickets.map((ticket) => (ticket.id === id ? { ...ticket, status, updatedDate: '2026-03-26' } : ticket)),
-    );
+    updateMaintenanceStatus(id, status);
     toast.success('Ticket status updated');
   }
 
@@ -290,7 +286,7 @@ export default function MaintenanceClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Maintenance</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            {tickets.length} total tickets
+            {currentDorm?.name ?? 'Dorm'} · {tickets.length} total tickets
           </p>
         </div>
         <button

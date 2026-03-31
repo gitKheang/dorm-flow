@@ -1,53 +1,18 @@
-export type UserRole = 'Admin' | 'Tenant' | 'Chef';
-export type EnabledModule = 'core' | 'mealService' | 'notifications' | 'analytics' | 'multiDorm';
+import type { EnabledModule } from '@/lib/modules';
+import type {
+  AuthSessionView,
+  MembershipRole,
+} from '@/lib/auth/types';
 
-export interface DemoSession {
-  role: UserRole;
-  name: string;
-  email: string;
-  initials: string;
-  dormName: string;
-  homePath: string;
+export type UserRole = MembershipRole;
+export interface DemoSession extends AuthSessionView {
   enabledModules: EnabledModule[];
-  tenantId?: string;
   roomNumber?: string;
 }
 
-export const SESSION_STORAGE_KEY = 'dormflow-demo-session-v1';
+export const SESSION_STORAGE_KEY = 'dormflow-auth-session-v3';
 
-export const DEMO_SESSIONS: Record<UserRole, DemoSession> = {
-  Admin: {
-    role: 'Admin',
-    name: 'Admin User',
-    email: 'admin@sunrisedorm.app',
-    initials: 'AD',
-    dormName: 'Sunrise Dormitory',
-    homePath: '/admin-dashboard',
-    enabledModules: ['core', 'mealService', 'notifications', 'analytics', 'multiDorm'],
-  },
-  Tenant: {
-    role: 'Tenant',
-    name: 'Sophea Kang',
-    email: 'sophea.kang@dormflow.app',
-    initials: 'SK',
-    dormName: 'Sunrise Dormitory',
-    homePath: '/tenant-dashboard',
-    enabledModules: ['core', 'notifications'],
-    tenantId: 'tenant-001',
-    roomNumber: '101',
-  },
-  Chef: {
-    role: 'Chef',
-    name: 'Chef Kim',
-    email: 'chef.kim@sunrisedorm.app',
-    initials: 'CK',
-    dormName: 'Sunrise Dormitory',
-    homePath: '/chef-dashboard',
-    enabledModules: ['core', 'mealService', 'notifications'],
-  },
-};
-
-const ROUTE_ACCESS: Record<string, UserRole[]> = {
+const ROUTE_ACCESS: Record<string, MembershipRole[]> = {
   '/admin-dashboard': ['Admin'],
   '/room-management': ['Admin'],
   '/tenants': ['Admin'],
@@ -69,25 +34,23 @@ const ROUTE_MODULE_REQUIREMENTS: Partial<Record<string, EnabledModule>> = {
   '/notifications': 'notifications',
 };
 
-export function isUserRole(value: string): value is UserRole {
+export function isUserRole(value: string): value is MembershipRole {
   return value === 'Admin' || value === 'Tenant' || value === 'Chef';
 }
 
-export function createDemoSession(role: UserRole): DemoSession {
-  return { ...DEMO_SESSIONS[role], enabledModules: [...DEMO_SESSIONS[role].enabledModules] };
+export function getDefaultRoute(role: MembershipRole, enabledModules: EnabledModule[] = ['core']): string {
+  if (role === 'Admin') return '/admin-dashboard';
+  if (role === 'Tenant') return '/tenant-dashboard';
+  return enabledModules.includes('mealService') ? '/chef-dashboard' : '/settings';
 }
 
-export function getDefaultRoute(role: UserRole): string {
-  return DEMO_SESSIONS[role].homePath;
-}
-
-export function getRoleLabel(role: UserRole): string {
+export function getRoleLabel(role: MembershipRole): string {
   if (role === 'Admin') return 'Dorm Owner';
   if (role === 'Tenant') return 'Tenant';
   return 'Chef';
 }
 
-export function isModuleAvailable(session: DemoSession | null, module: EnabledModule): boolean {
+export function isModuleAvailable(session: Pick<DemoSession, 'enabledModules'> | null, module: EnabledModule): boolean {
   if (!session) return false;
   if (module === 'core') return true;
   return session.enabledModules.includes(module);
@@ -104,11 +67,13 @@ export function getRequiredModuleForPath(pathname: string): EnabledModule | null
 }
 
 export function canAccessPath(pathname: string, session: DemoSession | null): boolean {
-  if (!session) return false;
+  if (!session || !session.activeMembership) {
+    return false;
+  }
 
   for (const [route, allowedRoles] of Object.entries(ROUTE_ACCESS)) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
-      if (!allowedRoles.includes(session.role)) {
+      if (!allowedRoles.includes(session.activeMembership.role)) {
         return false;
       }
 
@@ -122,25 +87,4 @@ export function canAccessPath(pathname: string, session: DemoSession | null): bo
   }
 
   return false;
-}
-
-export function restoreDemoSession(rawValue: string | null): DemoSession | null {
-  if (!rawValue) return null;
-
-  try {
-    const parsed = JSON.parse(rawValue) as Partial<DemoSession>;
-    if (!parsed.role || !isUserRole(parsed.role)) {
-      return null;
-    }
-
-    const base = createDemoSession(parsed.role);
-    return {
-      ...base,
-      name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name : base.name,
-      email: typeof parsed.email === 'string' && parsed.email.trim() ? parsed.email : base.email,
-      dormName: typeof parsed.dormName === 'string' && parsed.dormName.trim() ? parsed.dormName : base.dormName,
-    };
-  } catch {
-    return null;
-  }
 }

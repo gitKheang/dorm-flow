@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import Link from 'next/link';
-import { mockMaintenanceTickets } from '@/lib/mockData';
+import type { MaintenanceTicket } from '@/lib/mockData';
 
 const priorityConfig = {
   Critical: { bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-500' },
@@ -16,25 +16,25 @@ const statusConfig = {
   Resolved: { bg: 'bg-green-50', text: 'text-green-600' },
 };
 
-export default function MaintenanceList() {
-  const activeTickets = mockMaintenanceTickets?.filter(t => t?.status !== 'Resolved')?.sort((a, b) => {
+export default function MaintenanceList({ tickets }: { tickets: MaintenanceTicket[] }) {
+  const activeTickets = tickets.filter((ticket) => ticket.status !== 'Resolved').sort((a, b) => {
       const order = { Critical: 0, High: 1, Medium: 2, Low: 3 };
       return order?.[a?.priority] - order?.[b?.priority];
-    })?.slice(0, 6);
+    }).slice(0, 6);
 
   return (
     <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Active Maintenance</h2>
-          <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">{activeTickets?.length} open tickets requiring attention</p>
+          <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">{activeTickets.length} open tickets requiring attention</p>
         </div>
         <Link href="/maintenance" className="text-[12px] text-[hsl(var(--primary))] font-medium hover:underline">
           View all
         </Link>
       </div>
       <div className="space-y-2">
-        {activeTickets?.map((ticket) => {
+        {activeTickets.map((ticket) => {
           const pConf = priorityConfig?.[ticket?.priority];
           const sConf = statusConfig?.[ticket?.status];
           return (
@@ -63,6 +63,9 @@ export default function MaintenanceList() {
             </div>
           );
         })}
+        {activeTickets.length === 0 && (
+          <p className="py-6 text-[13px] text-[hsl(var(--muted-foreground))]">No open maintenance items in this dorm.</p>
+        )}
       </div>
     </div>
   );

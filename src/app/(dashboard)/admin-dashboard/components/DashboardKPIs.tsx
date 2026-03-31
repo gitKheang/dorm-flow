@@ -2,24 +2,32 @@
 import React from 'react';
 import Link from 'next/link';
 import { BedDouble, TrendingUp, AlertTriangle, Wrench, DoorOpen, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { mockRooms, mockInvoices, mockMaintenanceTickets } from '@/lib/mockData';
+import type { Invoice, MaintenanceTicket, Room } from '@/lib/mockData';
 
-export default function DashboardKPIs() {
-  const totalRooms = mockRooms?.length;
-  const occupiedRooms = mockRooms?.filter(r => r?.status === 'Occupied')?.length;
-  const availableRooms = mockRooms?.filter(r => r?.status === 'Available')?.length;
-  const underMaintenance = mockRooms?.filter(r => r?.status === 'Under Maintenance')?.length;
+export default function DashboardKPIs({
+  invoices,
+  maintenanceTickets,
+  rooms,
+}: {
+  invoices: Invoice[];
+  maintenanceTickets: MaintenanceTicket[];
+  rooms: Room[];
+}) {
+  const totalRooms = rooms.length;
+  const occupiedRooms = rooms.filter((room) => room.status === 'Occupied').length;
+  const availableRooms = rooms.filter((room) => room.status === 'Available').length;
+  const underMaintenance = rooms.filter((room) => room.status === 'Under Maintenance').length;
   const occupancyRate = Math.round((occupiedRooms / totalRooms) * 100);
 
-  const paidInvoices = mockInvoices?.filter(i => i?.status === 'Paid');
-  const overdueInvoices = mockInvoices?.filter(i => i?.status === 'Overdue');
-  const issuedInvoices = mockInvoices?.filter(i => i?.status === 'Issued');
-  const collectionRate = Math.round((paidInvoices?.length / mockInvoices?.length) * 100);
-  const overdueAmount = overdueInvoices?.reduce((s, i) => s + i?.amount, 0);
-  const monthlyRevenue = paidInvoices?.reduce((s, i) => s + i?.amount, 0);
+  const paidInvoices = invoices.filter((invoice) => invoice.status === 'Paid');
+  const overdueInvoices = invoices.filter((invoice) => invoice.status === 'Overdue');
+  const issuedInvoices = invoices.filter((invoice) => invoice.status === 'Issued');
+  const collectionRate = invoices.length > 0 ? Math.round((paidInvoices.length / invoices.length) * 100) : 0;
+  const overdueAmount = overdueInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+  const monthlyRevenue = paidInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
 
-  const openTickets = mockMaintenanceTickets?.filter(t => t?.status === 'Open')?.length;
-  const criticalTickets = mockMaintenanceTickets?.filter(t => t?.priority === 'Critical' && t?.status !== 'Resolved')?.length;
+  const openTickets = maintenanceTickets.filter((ticket) => ticket.status === 'Open').length;
+  const criticalTickets = maintenanceTickets.filter((ticket) => ticket.priority === 'Critical' && ticket.status !== 'Resolved').length;
 
   return (
     // 6 cards: hero(col-span-2) + 5 regular → grid-cols-4 → row1: hero(2)+2regular, row2: 3regular (last spans 1 each, last one spans 2 to avoid orphan? Actually 3 on row2 fits 3cols... use grid-cols-3 for row2 via subgrid or just use a single flat grid-cols-4 with careful spans)
@@ -77,7 +85,7 @@ export default function DashboardKPIs() {
           <p className="text-[12px] font-500 uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Collection Rate</p>
           <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">{collectionRate}%</p>
         </div>
-        <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{paidInvoices?.length} of {mockInvoices?.length} invoices paid</p>
+          <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{paidInvoices.length} of {invoices.length} invoices paid</p>
       </div>
       {/* Card 3: Overdue Invoices — ALERT */}
       <div className="bg-red-50 rounded-xl p-5 border border-red-200 flex flex-col gap-3">
@@ -112,7 +120,7 @@ export default function DashboardKPIs() {
           <p className="text-[12px] font-500 uppercase tracking-wider text-amber-700/70">Open Tickets</p>
           <p className="text-3xl font-700 tabular-nums text-amber-800 mt-0.5">{openTickets}</p>
         </div>
-        <p className="text-[12px] text-amber-700">{mockMaintenanceTickets?.filter(t => t?.status === 'In Progress')?.length} in progress</p>
+        <p className="text-[12px] text-amber-700">{maintenanceTickets.filter((ticket) => ticket.status === 'In Progress').length} in progress</p>
       </div>
       {/* Card 5: Available Rooms */}
       <div className="bg-white rounded-xl p-5 border border-[hsl(var(--border))] flex flex-col gap-3">

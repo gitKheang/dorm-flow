@@ -1,15 +1,17 @@
 'use client';
-import React, { useState } from 'react';
+import React from 'react';
 import { CreditCard, TrendingUp, DollarSign, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { mockInvoices, paymentCollectionData } from '@/lib/mockData';
+import { paymentCollectionData } from '@/lib/mockData';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 export default function PaymentsClient() {
-  const paidInvoices = mockInvoices.filter(i => i.status === 'Paid');
+  const { currentDorm, currentDormInvoices } = useDemoWorkspace();
+  const paidInvoices = currentDormInvoices.filter(i => i.status === 'Paid');
   const totalCollected = paidInvoices.reduce((s, i) => s + i.amount, 0);
-  const overdueAmount = mockInvoices.filter(i => i.status === 'Overdue').reduce((s, i) => s + i.amount, 0);
-  const collectionRate = Math.round((paidInvoices.length / mockInvoices.length) * 100);
+  const overdueAmount = currentDormInvoices.filter(i => i.status === 'Overdue').reduce((s, i) => s + i.amount, 0);
+  const collectionRate = currentDormInvoices.length > 0 ? Math.round((paidInvoices.length / currentDormInvoices.length) * 100) : 0;
 
   return (
     <div className="space-y-6">
@@ -18,7 +20,7 @@ export default function PaymentsClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Payments</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            Payment collection overview
+            {currentDorm?.name ?? 'Dorm'} payment collection overview
           </p>
         </div>
         <button
@@ -49,7 +51,7 @@ export default function PaymentsClient() {
             <span className="text-[12px] font-medium text-red-700 uppercase tracking-wider">Outstanding</span>
           </div>
           <p className="text-3xl font-700 text-red-800">${overdueAmount.toLocaleString()}</p>
-          <p className="text-[12px] text-red-600 mt-1">{mockInvoices.filter(i => i.status === 'Overdue').length} overdue invoices</p>
+          <p className="text-[12px] text-red-600 mt-1">{currentDormInvoices.filter(i => i.status === 'Overdue').length} overdue invoices</p>
         </div>
         <div className="bg-green-50 border border-green-200 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -57,7 +59,7 @@ export default function PaymentsClient() {
             <span className="text-[12px] font-medium text-green-700 uppercase tracking-wider">Collection Rate</span>
           </div>
           <p className="text-3xl font-700 text-green-800">{collectionRate}%</p>
-          <p className="text-[12px] text-green-600 mt-1">{paidInvoices.length} of {mockInvoices.length} invoices paid</p>
+          <p className="text-[12px] text-green-600 mt-1">{paidInvoices.length} of {currentDormInvoices.length} invoices paid</p>
         </div>
       </div>
 

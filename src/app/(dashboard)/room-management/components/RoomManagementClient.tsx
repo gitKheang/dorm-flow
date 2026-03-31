@@ -3,7 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { Plus, Search, SlidersHorizontal, Download, Trash2, Edit2, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import AppSelect from '@/components/ui/AppSelect';
-import { mockRooms, Room, RoomStatus, RoomType } from '@/lib/mockData';
+import { Room, RoomStatus, RoomType } from '@/lib/mockData';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AddRoomModal from './AddRoomModal';
 import RoomStatusBadge from './RoomStatusBadge';
 
@@ -13,7 +14,14 @@ type SortDir = 'asc' | 'desc';
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
 export default function RoomManagementClient() {
-  const [rooms, setRooms] = useState<Room[]>(mockRooms);
+  const {
+    addRoom,
+    currentDorm,
+    currentDormRooms,
+    deleteRoom,
+    updateRoom,
+    updateRoomStatus,
+  } = useDemoWorkspace();
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<RoomStatus | 'All'>('All');
   const [filterType, setFilterType] = useState<RoomType | 'All'>('All');
@@ -27,7 +35,8 @@ export default function RoomManagementClient() {
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  const floors = useMemo(() => [...new Set(mockRooms.map(r => r.floor))].sort((a, b) => a - b), []);
+  const rooms = currentDormRooms;
+  const floors = useMemo(() => [...new Set(currentDormRooms.map((room) => room.floor))].sort((a, b) => a - b), [currentDormRooms]);
 
   const filtered = useMemo(() => {
     let result = rooms.filter(r => {
@@ -75,30 +84,30 @@ export default function RoomManagementClient() {
 
   function handleBulkDelete() {
     const count = selectedIds.size;
-    setRooms(prev => prev.filter(r => !selectedIds.has(r.id)));
+    Array.from(selectedIds).forEach((roomId) => deleteRoom(roomId));
     setSelectedIds(new Set());
     toast.success(`${count} room${count > 1 ? 's' : ''} removed`);
   }
 
   function handleStatusChange(roomId: string, newStatus: RoomStatus) {
-    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, status: newStatus, lastUpdated: '2026-03-26' } : r));
+    updateRoomStatus(roomId, newStatus);
     toast.success('Room status updated');
   }
 
   function handleAddRoom(room: Room) {
-    setRooms(prev => [room, ...prev]);
+    addRoom(room);
     setShowAddModal(false);
     toast.success(`Room ${room.roomNumber} added successfully`);
   }
 
   function handleEditRoom(room: Room) {
-    setRooms(prev => prev.map(r => r.id === room.id ? room : r));
+    updateRoom(room);
     setEditRoom(null);
     toast.success(`Room ${room.roomNumber} updated`);
   }
 
   function handleDeleteRoom(room: Room) {
-    setRooms(prev => prev.filter(r => r.id !== room.id));
+    deleteRoom(room.id);
     toast.success(`Room ${room.roomNumber} removed`);
   }
 
@@ -139,7 +148,7 @@ export default function RoomManagementClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Room Management</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            {rooms.length} rooms · {statusCounts.Occupied} occupied · {statusCounts.Available} available
+            {currentDorm?.name ?? 'Dorm'} · {rooms.length} rooms · {statusCounts.Occupied} occupied · {statusCounts.Available} available
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from './ui/AppLogo';
+import AppSelect from './ui/AppSelect';
 import {
   LayoutDashboard, BedDouble, Users, FileText, CreditCard,
   Wrench, ChevronLeft, ChevronRight, Settings, LogOut,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { getRoleLabel, isModuleAvailable, type DemoSession, type UserRole } from '@/lib/demoSession';
 import { useDemoSession } from './DemoSessionProvider';
+import { useDemoWorkspace } from './DemoWorkspaceProvider';
 
 
 interface SidebarProps {
@@ -29,7 +31,14 @@ interface NavGroup {
   items: NavItem[];
 }
 
-function getNavGroups(session: DemoSession) {
+interface AdminNavMetrics {
+  peopleCount: number;
+  invoiceCount: number;
+  maintenanceCount: number;
+  notificationCount: number;
+}
+
+function getNavGroups(session: DemoSession, adminMetrics: AdminNavMetrics) {
   const { role } = session;
   const hasNotifications = isModuleAvailable(session, 'notifications');
   const hasMealService = isModuleAvailable(session, 'mealService');
@@ -48,7 +57,7 @@ function getNavGroups(session: DemoSession) {
       },
       {
         label: 'Account',
-        items: hasNotifications ? [{ icon: Bell, label: 'Notifications', href: '/notifications' }] : [],
+        items: hasNotifications ? [{ icon: Bell, label: 'Notifications', href: '/notifications', badge: adminMetrics.notificationCount > 0 ? String(adminMetrics.notificationCount) : null }] : [],
       },
     ];
 
@@ -76,10 +85,10 @@ function getNavGroups(session: DemoSession) {
       items: [
         { icon: LayoutDashboard, label: 'Dashboard', href: '/admin-dashboard' },
         { icon: BedDouble, label: 'Rooms', href: '/room-management' },
-        { icon: Users, label: 'People', href: '/tenants', badge: '12' },
-        { icon: FileText, label: 'Invoices', href: '/invoices', badge: '3' },
+        { icon: Users, label: 'People', href: '/tenants', badge: String(adminMetrics.peopleCount) },
+        { icon: FileText, label: 'Invoices', href: '/invoices', badge: String(adminMetrics.invoiceCount) },
         { icon: CreditCard, label: 'Payments', href: '/payments' },
-        { icon: Wrench, label: 'Maintenance', href: '/maintenance', badge: '5' },
+        { icon: Wrench, label: 'Maintenance', href: '/maintenance', badge: String(adminMetrics.maintenanceCount) },
       ],
     },
     {
@@ -91,7 +100,7 @@ function getNavGroups(session: DemoSession) {
     },
     {
       label: 'Account',
-      items: hasNotifications ? [{ icon: Bell, label: 'Notifications', href: '/notifications', badge: '2' }] : [],
+      items: hasNotifications ? [{ icon: Bell, label: 'Notifications', href: '/notifications', badge: adminMetrics.notificationCount > 0 ? String(adminMetrics.notificationCount) : null }] : [],
     },
   ];
 
@@ -101,12 +110,36 @@ function getNavGroups(session: DemoSession) {
 export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, signOut } = useDemoSession();
+  const { session, signOut, switchActiveDorm } = useDemoSession();
+  const {
+    currentDorm,
+    currentDormInvoices,
+    currentDormMaintenanceTickets,
+    currentDormTenants,
+    currentDormChefs,
+    workspace,
+  } = useDemoWorkspace();
   const prefetchedRoutesRef = useRef<Set<string>>(new Set());
+  const membershipDormIds = useMemo(
+    () => new Set(session?.memberships.map((membership) => membership.dormId) ?? []),
+    [session?.memberships],
+  );
+  const activeDormOptions = useMemo(
+    () => workspace.dorms
+      .filter((dorm) => dorm.status === 'Active' && membershipDormIds.has(dorm.id))
+      .map((dorm) => ({ value: dorm.id, label: `${dorm.name} · ${dorm.city}` })),
+    [membershipDormIds, workspace.dorms],
+  );
+  const adminMetrics = useMemo<AdminNavMetrics>(() => ({
+    peopleCount: currentDormTenants.length + currentDormChefs.length,
+    invoiceCount: currentDormInvoices.filter((invoice) => invoice.status === 'Issued' || invoice.status === 'Overdue').length,
+    maintenanceCount: currentDormMaintenanceTickets.filter((ticket) => ticket.status !== 'Resolved').length,
+    notificationCount: currentDormMaintenanceTickets.filter((ticket) => ticket.status === 'Open').length,
+  }), [currentDormChefs.length, currentDormInvoices, currentDormMaintenanceTickets, currentDormTenants.length]);
   const navGroups = useMemo(() => {
     if (!session) return [];
-    return getNavGroups(session);
-  }, [session]);
+    return getNavGroups(session, adminMetrics);
+  }, [adminMetrics, session]);
 
   useEffect(() => {
     if (!session) return;
@@ -166,6 +199,21 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-4">
+        {!collapsed && session.role === 'Admin' && currentDorm && isModuleAvailable(session, 'multiDorm') && activeDormOptions.length > 1 && (
+          <div className="px-2">
+            <p className="mb-1.5 px-3 text-[11px] font-500 uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
+              Active Dorm
+            </p>
+            <AppSelect
+              ariaLabel="Active dorm"
+              fullWidth
+              value={currentDorm.id}
+              options={activeDormOptions}
+              onChange={switchActiveDorm}
+              triggerClassName="py-2 text-[12px]"
+            />
+          </div>
+        )}
         {navGroups.map((group) => (
           <div key={`group-${group.label}`}>
             {!collapsed && (

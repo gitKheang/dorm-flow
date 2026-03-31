@@ -1,37 +1,11 @@
-import React from 'react';
+'use client';
 
-const dormPortfolio = [
-  {
-    name: 'Sunrise Dormitory',
-    city: 'Phnom Penh',
-    capacity: 120,
-    occupiedBeds: 108,
-    collectionRate: 96,
-    monthlyRevenue: 78200,
-    openMaintenance: 4,
-    waitlist: 18,
-  },
-  {
-    name: 'Riverside Residences',
-    city: 'Siem Reap',
-    capacity: 84,
-    occupiedBeds: 70,
-    collectionRate: 91,
-    monthlyRevenue: 51400,
-    openMaintenance: 7,
-    waitlist: 9,
-  },
-  {
-    name: 'Northgate Student House',
-    city: 'Battambang',
-    capacity: 64,
-    occupiedBeds: 58,
-    collectionRate: 98,
-    monthlyRevenue: 43600,
-    openMaintenance: 2,
-    waitlist: 6,
-  },
-];
+import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { useDemoSession } from '@/components/DemoSessionProvider';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -40,34 +14,194 @@ const currency = new Intl.NumberFormat('en-US', {
 });
 
 export default function MultiDormPage() {
-  const totalCapacity = dormPortfolio.reduce((sum, dorm) => sum + dorm.capacity, 0);
-  const totalOccupiedBeds = dormPortfolio.reduce((sum, dorm) => sum + dorm.occupiedBeds, 0);
-  const totalRevenue = dormPortfolio.reduce((sum, dorm) => sum + dorm.monthlyRevenue, 0);
-  const totalMaintenance = dormPortfolio.reduce((sum, dorm) => sum + dorm.openMaintenance, 0);
-  const totalWaitlist = dormPortfolio.reduce((sum, dorm) => sum + dorm.waitlist, 0);
-  const occupancyRate = Math.round((totalOccupiedBeds / totalCapacity) * 100);
-  const averageCollectionRate = Math.round(
-    dormPortfolio.reduce((sum, dorm) => sum + dorm.collectionRate, 0) / dormPortfolio.length
+  const { ensureAdminMembershipForDorm, session, switchActiveDorm } = useDemoSession();
+  const {
+    addDorm,
+    archiveDorm,
+    currentDorm,
+    workspace,
+  } = useDemoWorkspace();
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState('');
+  const [city, setCity] = useState('');
+  const [address, setAddress] = useState('');
+  const [timezone, setTimezone] = useState('UTC+7 (Indochina Time)');
+  const [waitlist, setWaitlist] = useState('0');
+  const availableDormIds = useMemo(
+    () => new Set(session?.memberships.map((membership) => membership.dormId) ?? []),
+    [session?.memberships],
   );
+
+  const activeDorms = useMemo(
+    () => workspace.dorms.filter(
+      (dorm) => dorm.status === 'Active' && availableDormIds.has(dorm.id),
+    ),
+    [availableDormIds, workspace.dorms],
+  );
+
+  const portfolio = useMemo(() => activeDorms.map((dorm) => {
+    const rooms = workspace.rooms.filter((room) => room.dormId === dorm.id);
+    const invoices = workspace.invoices.filter((invoice) => invoice.dormId === dorm.id);
+    const maintenance = workspace.maintenanceTickets.filter((ticket) => ticket.dormId === dorm.id && ticket.status !== 'Resolved');
+    const capacity = rooms.reduce((sum, room) => sum + room.capacity, 0);
+    const occupiedBeds = rooms.reduce((sum, room) => sum + room.occupants, 0);
+    const monthlyRevenue = invoices
+      .filter((invoice) => invoice.status === 'Paid' || invoice.status === 'Issued')
+      .reduce((sum, invoice) => sum + invoice.amount, 0);
+    const paidCount = invoices.filter((invoice) => invoice.status === 'Paid').length;
+    const collectionRate = invoices.length > 0 ? Math.round((paidCount / invoices.length) * 100) : 0;
+
+    return {
+      dorm,
+      rooms,
+      capacity,
+      occupiedBeds,
+      collectionRate,
+      monthlyRevenue,
+      openMaintenance: maintenance.length,
+    };
+  }), [activeDorms, workspace.invoices, workspace.maintenanceTickets, workspace.rooms]);
+
+  const totalCapacity = portfolio.reduce((sum, item) => sum + item.capacity, 0);
+  const totalOccupiedBeds = portfolio.reduce((sum, item) => sum + item.occupiedBeds, 0);
+  const totalRevenue = portfolio.reduce((sum, item) => sum + item.monthlyRevenue, 0);
+  const totalMaintenance = portfolio.reduce((sum, item) => sum + item.openMaintenance, 0);
+  const totalWaitlist = activeDorms.reduce((sum, dorm) => sum + dorm.waitlist, 0);
+  const occupancyRate = totalCapacity > 0 ? Math.round((totalOccupiedBeds / totalCapacity) * 100) : 0;
+  const averageCollectionRate = portfolio.length > 0
+    ? Math.round(portfolio.reduce((sum, item) => sum + item.collectionRate, 0) / portfolio.length)
+    : 0;
+
+  function handleAddDorm(event: React.FormEvent) {
+    event.preventDefault();
+    if (!name.trim() || !city.trim() || !address.trim()) {
+      return;
+    }
+
+    const nextDorm = addDorm({
+      name: name.trim(),
+      city: city.trim(),
+      address: address.trim(),
+      timezone,
+      waitlist: Number(waitlist) || 0,
+    });
+    ensureAdminMembershipForDorm(nextDorm.id);
+
+    toast.success(`${nextDorm.name} added to your portfolio`);
+    setName('');
+    setCity('');
+    setAddress('');
+    setTimezone('UTC+7 (Indochina Time)');
+    setWaitlist('0');
+    setShowForm(false);
+  }
+
+  function handleArchiveDorm(dormId: string, dormName: string) {
+    const didArchive = archiveDorm(dormId);
+    if (!didArchive) {
+      toast.info('At least one active dorm must remain in the portfolio.');
+      return;
+    }
+
+    toast.success(`${dormName} archived from the active portfolio`);
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Multi-Dorm Overview</h1>
+          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Multi-Dorm Portfolio</h1>
           <p className="mt-0.5 text-[14px] text-[hsl(var(--muted-foreground))]">
-            Portfolio-level occupancy, revenue, and operational health across all properties
+            Add dorms, switch the active property, and manage each dorm from a scoped operational workspace.
           </p>
         </div>
-        <div className="rounded-xl border border-[hsl(var(--border))] bg-white px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--muted-foreground))]">
-            Portfolio Focus
-          </p>
-          <p className="mt-1 text-[14px] font-medium text-[hsl(var(--foreground))]">
-            Riverside needs attention on occupancy and ticket volume this week.
-          </p>
+        <div className="flex gap-2">
+          <Link
+            href="/settings"
+            className="rounded-lg border border-[hsl(var(--border))] bg-white px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
+          >
+            Edit Active Dorm
+          </Link>
+          <button
+            type="button"
+            onClick={() => setShowForm((current) => !current)}
+            className="inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)]"
+          >
+            <Plus size={15} />
+            {showForm ? 'Close Form' : 'Add Dorm'}
+          </button>
         </div>
       </div>
+
+      {showForm && (
+        <form onSubmit={handleAddDorm} className="grid gap-4 rounded-xl border border-[hsl(var(--border))] bg-white p-6 md:grid-cols-2 xl:grid-cols-5">
+          <div className="space-y-1.5 xl:col-span-2">
+            <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Dorm name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className="w-full rounded-lg border border-[hsl(var(--border))] px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+              required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">City</label>
+            <input
+              type="text"
+              value={city}
+              onChange={(event) => setCity(event.target.value)}
+              className="w-full rounded-lg border border-[hsl(var(--border))] px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+              required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Timezone</label>
+            <input
+              type="text"
+              value={timezone}
+              onChange={(event) => setTimezone(event.target.value)}
+              className="w-full rounded-lg border border-[hsl(var(--border))] px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+              required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Waitlist</label>
+            <input
+              type="number"
+              min={0}
+              value={waitlist}
+              onChange={(event) => setWaitlist(event.target.value)}
+              className="w-full rounded-lg border border-[hsl(var(--border))] px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+            />
+          </div>
+          <div className="space-y-1.5 md:col-span-2 xl:col-span-5">
+            <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Address</label>
+            <input
+              type="text"
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              className="w-full rounded-lg border border-[hsl(var(--border))] px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+              required
+            />
+          </div>
+          <div className="flex gap-2 md:col-span-2 xl:col-span-5">
+            <button
+              type="submit"
+              className="rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)]"
+            >
+              Save Dorm
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl bg-[hsl(var(--primary))] p-5 text-white">
@@ -78,19 +212,19 @@ export default function MultiDormPage() {
           </p>
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-emerald-700">Monthly Revenue</p>
+          <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-emerald-700">Portfolio Revenue</p>
           <p className="mt-3 text-3xl font-semibold text-emerald-900">{currency.format(totalRevenue)}</p>
-          <p className="mt-1 text-[13px] text-emerald-700">{dormPortfolio.length} active dorms reporting</p>
+          <p className="mt-1 text-[13px] text-emerald-700">{activeDorms.length} active dorms tracked</p>
         </div>
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
           <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-blue-700">Average Collection</p>
           <p className="mt-3 text-3xl font-semibold text-blue-900">{averageCollectionRate}%</p>
-          <p className="mt-1 text-[13px] text-blue-700">Healthy payment performance across the portfolio</p>
+          <p className="mt-1 text-[13px] text-blue-700">Across all active properties</p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
-          <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-amber-700">Open Maintenance</p>
+          <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-amber-700">Operational Queue</p>
           <p className="mt-3 text-3xl font-semibold text-amber-900">{totalMaintenance}</p>
-          <p className="mt-1 text-[13px] text-amber-700">{totalWaitlist} residents currently on waitlists</p>
+          <p className="mt-1 text-[13px] text-amber-700">{totalWaitlist} residents on waitlists</p>
         </div>
       </div>
 
@@ -98,16 +232,17 @@ export default function MultiDormPage() {
         <div className="rounded-xl border border-[hsl(var(--border))] bg-white p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Dorm Performance</h2>
+              <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Dorm Portfolio</h2>
               <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">
-                Occupancy, collections, and workload by property
+                Each dorm below can be made active, then managed through the shared admin workspace.
               </p>
             </div>
           </div>
 
           <div className="mt-5 space-y-4">
-            {dormPortfolio.map((dorm) => {
-              const dormOccupancy = Math.round((dorm.occupiedBeds / dorm.capacity) * 100);
+            {portfolio.map((item) => {
+              const dormOccupancy = item.capacity > 0 ? Math.round((item.occupiedBeds / item.capacity) * 100) : 0;
+              const isActiveDorm = currentDorm?.id === item.dorm.id;
               const occupancyBarClass =
                 dormOccupancy >= 95
                   ? 'bg-emerald-500'
@@ -117,32 +252,40 @@ export default function MultiDormPage() {
 
               return (
                 <div
-                  key={dorm.name}
-                  className="rounded-xl border border-[hsl(var(--border))] p-4 transition-colors hover:bg-[hsl(var(--muted)/0.35)]"
+                  key={item.dorm.id}
+                  className={`rounded-xl border p-4 transition-colors ${isActiveDorm ? 'border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.05)]' : 'border-[hsl(var(--border))] hover:bg-[hsl(var(--muted)/0.35)]'}`}
                 >
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <p className="text-[15px] font-semibold text-[hsl(var(--foreground))]">{dorm.name}</p>
-                      <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">{dorm.city}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[15px] font-semibold text-[hsl(var(--foreground))]">{item.dorm.name}</p>
+                        {isActiveDorm && (
+                          <span className="rounded-full bg-[hsl(var(--primary))] px-2 py-0.5 text-[11px] font-medium text-white">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">{item.dorm.city}</p>
+                      <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">{item.dorm.address}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
                       <div>
                         <p className="text-[hsl(var(--muted-foreground))]">Revenue</p>
                         <p className="mt-1 font-semibold text-[hsl(var(--foreground))]">
-                          {currency.format(dorm.monthlyRevenue)}
+                          {currency.format(item.monthlyRevenue)}
                         </p>
                       </div>
                       <div>
                         <p className="text-[hsl(var(--muted-foreground))]">Collection</p>
-                        <p className="mt-1 font-semibold text-[hsl(var(--foreground))]">{dorm.collectionRate}%</p>
+                        <p className="mt-1 font-semibold text-[hsl(var(--foreground))]">{item.collectionRate}%</p>
                       </div>
                       <div>
                         <p className="text-[hsl(var(--muted-foreground))]">Open Tickets</p>
-                        <p className="mt-1 font-semibold text-[hsl(var(--foreground))]">{dorm.openMaintenance}</p>
+                        <p className="mt-1 font-semibold text-[hsl(var(--foreground))]">{item.openMaintenance}</p>
                       </div>
                       <div>
                         <p className="text-[hsl(var(--muted-foreground))]">Waitlist</p>
-                        <p className="mt-1 font-semibold text-[hsl(var(--foreground))]">{dorm.waitlist}</p>
+                        <p className="mt-1 font-semibold text-[hsl(var(--foreground))]">{item.dorm.waitlist}</p>
                       </div>
                     </div>
                   </div>
@@ -151,7 +294,7 @@ export default function MultiDormPage() {
                     <div className="mb-2 flex items-center justify-between text-[13px]">
                       <span className="text-[hsl(var(--muted-foreground))]">Occupancy</span>
                       <span className="font-medium text-[hsl(var(--foreground))]">
-                        {dorm.occupiedBeds}/{dorm.capacity} beds ({dormOccupancy}%)
+                        {item.occupiedBeds}/{item.capacity} beds ({dormOccupancy}%)
                       </span>
                     </div>
                     <div className="h-2.5 overflow-hidden rounded-full bg-[hsl(var(--muted))]">
@@ -161,81 +304,71 @@ export default function MultiDormPage() {
                       />
                     </div>
                   </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {!isActiveDorm && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          switchActiveDorm(item.dorm.id);
+                          toast.success(`${item.dorm.name} is now the active workspace`);
+                        }}
+                        className="rounded-lg bg-[hsl(var(--primary))] px-4 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)]"
+                      >
+                        Make Active
+                      </button>
+                    )}
+                    <Link
+                      href="/settings"
+                      onClick={() => switchActiveDorm(item.dorm.id)}
+                      className="rounded-lg border border-[hsl(var(--border))] px-4 py-2 text-[12px] font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
+                    >
+                      Manage
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleArchiveDorm(item.dorm.id, item.dorm.name)}
+                      className="rounded-lg border border-red-200 px-4 py-2 text-[12px] font-medium text-red-600 transition-colors hover:bg-red-50"
+                    >
+                      Archive
+                    </button>
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div className="rounded-xl border border-[hsl(var(--border))] bg-white p-6">
-          <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Priority Watchlist</h2>
-          <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">
-            The most immediate portfolio actions based on current metrics
-          </p>
-
-          <div className="mt-5 space-y-3">
-            {[
-              {
-                title: 'Riverside occupancy is trailing portfolio average',
-                detail: '70 of 84 beds occupied. Consider pushing local marketing or referral incentives.',
-                tone: 'border-amber-200 bg-amber-50 text-amber-900',
-              },
-              {
-                title: 'Sunrise waitlist can be converted faster',
-                detail: '18 pending residents can offset churn if room turnover is accelerated this week.',
-                tone: 'border-blue-200 bg-blue-50 text-blue-900',
-              },
-              {
-                title: 'Northgate collections are strong',
-                detail: '98% collection rate makes it the best candidate for pricing and expansion analysis.',
-                tone: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-              },
-            ].map((item) => (
-              <div key={item.title} className={`rounded-xl border p-4 ${item.tone}`}>
-                <p className="text-[13px] font-semibold">{item.title}</p>
-                <p className="mt-1 text-[12px] leading-5 opacity-80">{item.detail}</p>
+        <div className="space-y-6">
+          <div className="rounded-xl border border-[hsl(var(--border))] bg-white p-6">
+            <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Active Workspace</h2>
+            <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">
+              Changes to rooms, people, invoices, and maintenance now follow the selected dorm.
+            </p>
+            {currentDorm ? (
+              <div className="mt-5 space-y-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.25)] p-4">
+                <div>
+                  <p className="text-[14px] font-semibold text-[hsl(var(--foreground))]">{currentDorm.name}</p>
+                  <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{currentDorm.city}</p>
+                </div>
+                <div className="space-y-1 text-[12px] text-[hsl(var(--muted-foreground))]">
+                  <p>{currentDorm.address}</p>
+                  <p>{currentDorm.timezone}</p>
+                </div>
               </div>
-            ))}
+            ) : (
+              <p className="mt-4 text-[13px] text-[hsl(var(--muted-foreground))]">No active dorm selected.</p>
+            )}
           </div>
-        </div>
-      </div>
 
-      <div className="overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-white">
-        <div className="border-b border-[hsl(var(--border))] px-6 py-4">
-          <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Portfolio Table</h2>
-          <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">
-            Standardized property snapshot for weekly operations reviews
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-[hsl(var(--border))]">
-            <thead className="bg-[hsl(var(--muted)/0.45)]">
-              <tr className="text-left text-[12px] uppercase tracking-[0.18em] text-[hsl(var(--muted-foreground))]">
-                <th className="px-6 py-3 font-medium">Dorm</th>
-                <th className="px-6 py-3 font-medium">City</th>
-                <th className="px-6 py-3 font-medium">Occupancy</th>
-                <th className="px-6 py-3 font-medium">Collection</th>
-                <th className="px-6 py-3 font-medium">Revenue</th>
-                <th className="px-6 py-3 font-medium">Open Tickets</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[hsl(var(--border))]">
-              {dormPortfolio.map((dorm) => {
-                const dormOccupancy = Math.round((dorm.occupiedBeds / dorm.capacity) * 100);
-
-                return (
-                  <tr key={dorm.name} className="text-[14px] text-[hsl(var(--foreground))]">
-                    <td className="px-6 py-4 font-medium">{dorm.name}</td>
-                    <td className="px-6 py-4 text-[hsl(var(--muted-foreground))]">{dorm.city}</td>
-                    <td className="px-6 py-4">{dormOccupancy}%</td>
-                    <td className="px-6 py-4">{dorm.collectionRate}%</td>
-                    <td className="px-6 py-4">{currency.format(dorm.monthlyRevenue)}</td>
-                    <td className="px-6 py-4">{dorm.openMaintenance}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="rounded-xl border border-[hsl(var(--border))] bg-white p-6">
+            <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">What Changed</h2>
+            <div className="mt-4 space-y-3 text-[13px] text-[hsl(var(--muted-foreground))]">
+              <p>Adding a dorm now creates a real workspace entry instead of a static dashboard card.</p>
+              <p>Selecting a dorm changes the active property used by rooms, people, invoices, maintenance, and settings.</p>
+              <p>Archiving a dorm removes it from the active portfolio but preserves the record.</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

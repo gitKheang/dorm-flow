@@ -1,8 +1,7 @@
 'use client';
 import React from 'react';
 import { CreditCard, Wrench, Users, FileText, BedDouble } from 'lucide-react';
-import { mockActivityFeed, ActivityItem } from '@/lib/mockData';
-import Icon from '@/components/ui/AppIcon';
+import type { ActivityItem } from '@/lib/mockData';
 import Link from 'next/link';
 
 
@@ -33,7 +32,7 @@ function ActivityIcon({ type }: { type: ActivityItem['type'] }) {
   );
 }
 
-export default function ActivityFeed() {
+export default function ActivityFeed({ items }: { items: ActivityItem[] }) {
   return (
     <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
       <div className="flex items-center justify-between mb-5">
@@ -43,10 +42,10 @@ export default function ActivityFeed() {
         </Link>
       </div>
       <div className="space-y-1">
-        {mockActivityFeed.map((item, idx) => (
+        {items.map((item, idx) => (
           <div
             key={item.id}
-            className={`flex items-start gap-3 py-3 ${idx < mockActivityFeed.length - 1 ? 'border-b border-[hsl(var(--border))]' : ''}`}
+            className={`flex items-start gap-3 py-3 ${idx < items.length - 1 ? 'border-b border-[hsl(var(--border))]' : ''}`}
           >
             <ActivityIcon type={item.type} />
             <div className="flex-1 min-w-0">
@@ -66,6 +65,9 @@ export default function ActivityFeed() {
             </span>
           </div>
         ))}
+        {items.length === 0 && (
+          <p className="py-6 text-[13px] text-[hsl(var(--muted-foreground))]">No recent activity for this dorm yet.</p>
+        )}
       </div>
     </div>
   );

@@ -4,9 +4,9 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { BedDouble, Mail, Phone, Plus, Search, UserCheck, UserX, Users, ChefHat } from 'lucide-react';
 import { toast } from 'sonner';
+import { useDemoSession } from '@/components/DemoSessionProvider';
 import AppSelect from '@/components/ui/AppSelect';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
-import { mockRooms } from '@/lib/mockData';
 
 type ViewMode = 'residents' | 'kitchen';
 
@@ -17,10 +17,14 @@ const chefShiftOptions = [
 ];
 
 export default function TenantsClient() {
+  const { createInvitation } = useDemoSession();
   const {
-    workspace,
     addChef,
     addTenant,
+    currentDorm,
+    currentDormChefs,
+    currentDormRooms,
+    currentDormTenants,
     hasModule,
     updateChefStatus,
     updateTenantStatus,
@@ -34,6 +38,7 @@ export default function TenantsClient() {
   const [residentName, setResidentName] = useState('');
   const [residentEmail, setResidentEmail] = useState('');
   const [residentPhone, setResidentPhone] = useState('');
+  const [residentRoomId, setResidentRoomId] = useState('unassigned');
   const [chefName, setChefName] = useState('');
   const [chefEmail, setChefEmail] = useState('');
   const [chefShift, setChefShift] = useState<'Morning' | 'Evening' | 'Split'>('Morning');
@@ -42,7 +47,7 @@ export default function TenantsClient() {
   const mealServiceEnabled = hasModule('mealService');
 
   const filteredResidents = useMemo(() => {
-    return workspace.tenants.filter((tenant) => {
+    return currentDormTenants.filter((tenant) => {
       const query = search.toLowerCase();
       const matchesSearch =
         !query ||
@@ -52,10 +57,10 @@ export default function TenantsClient() {
       const matchesStatus = residentStatusFilter === 'All' || tenant.status === residentStatusFilter;
       return matchesSearch && matchesStatus;
     });
-  }, [residentStatusFilter, search, workspace.tenants]);
+  }, [currentDormTenants, residentStatusFilter, search]);
 
   const filteredChefs = useMemo(() => {
-    return workspace.chefs.filter((chef) => {
+    return currentDormChefs.filter((chef) => {
       const query = search.toLowerCase();
       const matchesSearch =
         !query ||
@@ -65,26 +70,37 @@ export default function TenantsClient() {
       const matchesStatus = chefStatusFilter === 'All' || chef.status === chefStatusFilter;
       return matchesSearch && matchesStatus;
     });
-  }, [chefStatusFilter, search, workspace.chefs]);
+  }, [chefStatusFilter, currentDormChefs, search]);
 
   const residentCounts = useMemo(() => ({
-    total: workspace.tenants.length,
-    active: workspace.tenants.filter((tenant) => tenant.status === 'Active').length,
-    inactive: workspace.tenants.filter((tenant) => tenant.status === 'Inactive').length,
-  }), [workspace.tenants]);
+    total: currentDormTenants.length,
+    active: currentDormTenants.filter((tenant) => tenant.status === 'Active').length,
+    inactive: currentDormTenants.filter((tenant) => tenant.status === 'Inactive').length,
+  }), [currentDormTenants]);
 
   const chefCounts = useMemo(() => ({
-    total: workspace.chefs.length,
-    active: workspace.chefs.filter((chef) => chef.status === 'Active').length,
-    invited: workspace.chefs.filter((chef) => chef.status === 'Invited').length,
-  }), [workspace.chefs]);
+    total: currentDormChefs.length,
+    active: currentDormChefs.filter((chef) => chef.status === 'Active').length,
+    invited: currentDormChefs.filter((chef) => chef.status === 'Invited').length,
+  }), [currentDormChefs]);
+
+  const residentRoomOptions = useMemo(
+    () => [
+      { value: 'unassigned', label: 'Assignment pending' },
+      ...currentDormRooms.map((room) => ({
+        value: room.id,
+        label: `Room ${room.roomNumber} · ${room.occupants}/${room.capacity}`,
+      })),
+    ],
+    [currentDormRooms],
+  );
 
   function getRoomLabel(roomId: string) {
     if (!roomId || roomId === 'unassigned') {
       return 'Assignment pending';
     }
 
-    const room = mockRooms.find((item) => item.id === roomId);
+    const room = currentDormRooms.find((item) => item.id === roomId);
     return room ? `Room ${room.roomNumber}` : 'Assignment pending';
   }
 
@@ -98,13 +114,28 @@ export default function TenantsClient() {
       name: residentName.trim(),
       email: residentEmail.trim(),
       phone: residentPhone.trim(),
+      roomId: residentRoomId,
     });
 
     setResidentName('');
     setResidentEmail('');
     setResidentPhone('');
+    setResidentRoomId('unassigned');
     setShowResidentForm(false);
-    toast.success(`${nextTenant.name} added to the resident pipeline`);
+
+    try {
+      const invitation = createInvitation({
+        email: nextTenant.email,
+        role: 'Tenant',
+        targetRecordId: nextTenant.id,
+      });
+      toast.success(`${nextTenant.name} added to the resident pipeline`);
+      toast.info(`Demo invite code: ${invitation.code}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create the invitation.';
+      toast.success(`${nextTenant.name} added to the resident pipeline`);
+      toast.error(message);
+    }
   }
 
   function handleAddChef(event: React.FormEvent) {
@@ -125,7 +156,20 @@ export default function TenantsClient() {
     setChefSpecialty('');
     setChefShift('Morning');
     setShowChefForm(false);
-    toast.success(`${nextChef.name} invited to the kitchen team`);
+
+    try {
+      const invitation = createInvitation({
+        email: nextChef.email,
+        role: 'Chef',
+        targetRecordId: nextChef.id,
+      });
+      toast.success(`${nextChef.name} invited to the kitchen team`);
+      toast.info(`Demo invite code: ${invitation.code}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create the invitation.';
+      toast.success(`${nextChef.name} invited to the kitchen team`);
+      toast.error(message);
+    }
   }
 
   function handleResidentStatusToggle(tenantId: string, currentStatus: 'Active' | 'Inactive') {
@@ -147,7 +191,7 @@ export default function TenantsClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">People</h1>
           <p className="mt-0.5 text-[14px] text-[hsl(var(--muted-foreground))]">
-            Manage residents, kitchen staff, and onboarding readiness for each role.
+            {currentDorm?.name ?? 'Dorm'} · manage residents, kitchen staff, and onboarding readiness for each role.
           </p>
         </div>
         <button
@@ -278,7 +322,7 @@ export default function TenantsClient() {
               New residents start as inactive until their move-in, room assignment, and billing setup are confirmed.
             </p>
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <div className="space-y-1.5">
               <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Full Name</label>
               <input
@@ -307,6 +351,16 @@ export default function TenantsClient() {
                 onChange={(event) => setResidentPhone(event.target.value)}
                 className="w-full rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
                 required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Room assignment</label>
+              <AppSelect
+                ariaLabel="Resident room assignment"
+                fullWidth
+                value={residentRoomId}
+                options={residentRoomOptions}
+                onChange={setResidentRoomId}
               />
             </div>
           </div>

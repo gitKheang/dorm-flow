@@ -12,11 +12,13 @@ type SettingsTab = 'profile' | 'security' | 'notifications' | 'dorm';
 
 export default function SettingsClient() {
   const { session, updateSession } = useDemoSession();
-  const { hasModule, setModuleEnabled } = useDemoWorkspace();
+  const { currentDorm, hasModule, setModuleEnabled, updateDorm } = useDemoWorkspace();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [dormName, setDormName] = useState('');
+  const [dormCity, setDormCity] = useState('');
+  const [dormAddress, setDormAddress] = useState('');
   const [timezone, setTimezone] = useState('UTC+7 (Indochina Time)');
   const [notifPrimary, setNotifPrimary] = useState(true);
   const [notifSecondary, setNotifSecondary] = useState(true);
@@ -26,8 +28,11 @@ export default function SettingsClient() {
     if (!session) return;
     setName(session.name);
     setEmail(session.email);
-    setDormName(session.dormName);
-  }, [session]);
+    setDormName(currentDorm?.name ?? session.dormName);
+    setDormCity(currentDorm?.city ?? '');
+    setDormAddress(currentDorm?.address ?? '');
+    setTimezone(currentDorm?.timezone ?? 'UTC+7 (Indochina Time)');
+  }, [currentDorm, session]);
 
   const isAdmin = session?.role === 'Admin';
 
@@ -148,11 +153,15 @@ export default function SettingsClient() {
   }
 
   function handleSave() {
-    updateSession({
-      name,
-      email,
-      dormName: isAdmin ? dormName : session!.dormName ?? dormName,
-    });
+    updateSession({ name, email });
+    if (isAdmin && currentDorm) {
+      updateDorm(currentDorm.id, {
+        name: dormName,
+        city: dormCity,
+        address: dormAddress,
+        timezone,
+      });
+    }
     toast.success('Settings saved successfully');
   }
 
@@ -290,7 +299,22 @@ export default function SettingsClient() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Address</label>
-                <input type="text" placeholder="123 Campus Drive, City, State" className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]" />
+                <input
+                  type="text"
+                  value={dormAddress}
+                  onChange={(event) => setDormAddress(event.target.value)}
+                  placeholder="123 Campus Drive, City, State"
+                  className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">City</label>
+                <input
+                  type="text"
+                  value={dormCity}
+                  onChange={(event) => setDormCity(event.target.value)}
+                  className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Timezone</label>

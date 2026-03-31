@@ -1,4 +1,7 @@
+'use client';
+
 import React from 'react';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import DashboardKPIs from './components/DashboardKPIs';
 import OccupancyChart from './components/OccupancyChart';
 import PaymentChart from './components/PaymentChart';
@@ -6,6 +9,14 @@ import ActivityFeed from './components/ActivityFeed';
 import MaintenanceList from './components/MaintenanceList';
 
 export default function AdminDashboardPage() {
+  const {
+    currentDorm,
+    currentDormActivityFeed,
+    currentDormInvoices,
+    currentDormMaintenanceTickets,
+    currentDormRooms,
+  } = useDemoWorkspace();
+
   return (
     <div className="space-y-8">
         {/* Page header */}
@@ -13,7 +24,7 @@ export default function AdminDashboardPage() {
           <div>
             <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Dashboard</h1>
             <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              Sunrise Dormitory — March 26, 2026
+              {currentDorm?.name ?? 'Active Dorm'} — March 31, 2026
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -25,7 +36,11 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* KPI Bento Grid */}
-        <DashboardKPIs />
+        <DashboardKPIs
+          invoices={currentDormInvoices}
+          maintenanceTickets={currentDormMaintenanceTickets}
+          rooms={currentDormRooms}
+        />
 
         {/* Charts row */}
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
@@ -39,8 +54,8 @@ export default function AdminDashboardPage() {
 
         {/* Bottom row: activity + maintenance */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <ActivityFeed />
-          <MaintenanceList />
+          <ActivityFeed items={currentDormActivityFeed} />
+          <MaintenanceList tickets={currentDormMaintenanceTickets} />
         </div>
     </div>
   );

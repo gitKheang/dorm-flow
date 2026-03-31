@@ -1,7 +1,8 @@
 'use client';
 import React from 'react';
 import { BarChart3, TrendingUp, BedDouble, DollarSign } from 'lucide-react';
-import { mockRooms, mockInvoices, mockTenants, occupancyTrendData, paymentCollectionData } from '@/lib/mockData';
+import { occupancyTrendData, paymentCollectionData } from '@/lib/mockData';
+import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell
@@ -10,26 +11,29 @@ import {
 const ROOM_TYPE_COLORS = ['hsl(var(--primary))', '#60a5fa', '#34d399', '#f59e0b'];
 
 export default function ReportsClient() {
-  const totalRooms = mockRooms.length;
-  const occupiedRooms = mockRooms.filter(r => r.status === 'Occupied').length;
-  const occupancyRate = Math.round((occupiedRooms / totalRooms) * 100);
-  const totalRevenue = mockInvoices.filter(i => i.status === 'Paid').reduce((s, i) => s + i.amount, 0);
-  const collectionRate = Math.round((mockInvoices.filter(i => i.status === 'Paid').length / mockInvoices.length) * 100);
+  const { currentDorm, currentDormInvoices, currentDormRooms, currentDormTenants } = useDemoWorkspace();
+  const totalRooms = currentDormRooms.length;
+  const occupiedRooms = currentDormRooms.filter((room) => room.status === 'Occupied').length;
+  const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
+  const totalRevenue = currentDormInvoices.filter((invoice) => invoice.status === 'Paid').reduce((sum, invoice) => sum + invoice.amount, 0);
+  const collectionRate = currentDormInvoices.length > 0
+    ? Math.round((currentDormInvoices.filter((invoice) => invoice.status === 'Paid').length / currentDormInvoices.length) * 100)
+    : 0;
 
   const roomTypeData = ['Single', 'Double', 'Triple', 'Suite'].map(type => ({
     name: type,
-    value: mockRooms.filter(r => r.type === type).length,
+    value: currentDormRooms.filter((room) => room.type === type).length,
   }));
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Reports & Analytics</h1>
-        <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-          Sunrise Dormitory — March 2026
-        </p>
-      </div>
+          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Reports & Analytics</h1>
+          <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
+            {currentDorm?.name ?? 'Active Dorm'} — March 2026
+          </p>
+        </div>
 
       {/* KPI summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -37,7 +41,7 @@ export default function ReportsClient() {
           { label: 'Occupancy Rate', value: `${occupancyRate}%`, sub: `${occupiedRooms}/${totalRooms} rooms`, icon: BedDouble, color: 'text-[hsl(var(--primary))]', bg: 'bg-[hsl(var(--primary)/0.08)]' },
           { label: 'Collection Rate', value: `${collectionRate}%`, sub: 'Invoices paid', icon: TrendingUp, color: 'text-green-600', bg: 'bg-green-50' },
           { label: 'Revenue (Mar)', value: `$${totalRevenue.toLocaleString()}`, sub: 'Collected this month', icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Total Tenants', value: String(mockTenants.length), sub: 'Active residents', icon: BarChart3, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Total Tenants', value: String(currentDormTenants.length), sub: 'Active residents', icon: BarChart3, color: 'text-blue-600', bg: 'bg-blue-50' },
         ].map(card => (
           <div key={card.label} className="bg-white rounded-xl border border-[hsl(var(--border))] p-5">
             <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center mb-3`}>

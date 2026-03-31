@@ -5,7 +5,6 @@ import { BedDouble, CreditCard, Wrench, CheckCircle2, AlertTriangle, ChevronRigh
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AppSelect from '@/components/ui/AppSelect';
-import { mockInvoices, mockMaintenanceTickets, mockRooms } from '@/lib/mockData';
 import { toast } from 'sonner';
 
 const mealPlanOptions = [
@@ -17,12 +16,20 @@ const mealPlanOptions = [
 
 export default function TenantDashboardPage() {
   const { session } = useDemoSession();
-  const { hasModule, setTenantMealPreference, workspace } = useDemoWorkspace();
+  const {
+    addMaintenanceTicket,
+    currentDormInvoices,
+    currentDormMaintenanceTickets,
+    currentDormRooms,
+    hasModule,
+    setTenantMealPreference,
+    workspace,
+  } = useDemoWorkspace();
   const currentTenantId = session?.tenantId ?? 'tenant-001';
   const tenant = workspace.tenants.find((item) => item.id === currentTenantId);
-  const room = mockRooms.find(r => r.id === tenant?.roomId);
-  const invoices = mockInvoices.filter(i => i.tenantId === currentTenantId);
-  const tickets = mockMaintenanceTickets.filter(t => t.tenantName === tenant?.name);
+  const room = currentDormRooms.find((item) => item.id === tenant?.roomId);
+  const invoices = currentDormInvoices.filter((invoice) => invoice.tenantId === currentTenantId);
+  const tickets = currentDormMaintenanceTickets.filter((ticket) => ticket.tenantName === tenant?.name);
   const mealServiceEnabled = hasModule('mealService');
   const currentMealPreference = workspace.tenantMealPreferences.find((preference) => preference.tenantId === currentTenantId);
 
@@ -47,9 +54,19 @@ export default function TenantDashboardPage() {
   function handleSubmitRequest(e: React.FormEvent) {
     e.preventDefault();
     if (!requestTitle.trim()) return;
+    addMaintenanceTicket({
+      title: requestTitle.trim(),
+      roomId: tenant?.roomId ?? 'room-001',
+      roomNumber: room?.roomNumber ?? 'N/A',
+      tenantName: tenant?.name ?? session?.name ?? 'Tenant',
+      description: requestDesc.trim() || 'No extra details provided.',
+      category: requestCategory,
+      priority: 'Medium',
+    });
     toast.success('Maintenance request submitted! We\'ll respond within 24 hours.');
     setRequestTitle('');
     setRequestDesc('');
+    setRequestCategory('Plumbing');
     setShowRequestForm(false);
   }
 
