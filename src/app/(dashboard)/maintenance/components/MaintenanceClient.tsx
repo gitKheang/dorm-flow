@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Plus, Search, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDemoSession } from '@/components/DemoSessionProvider';
@@ -9,8 +9,12 @@ import AppSelect from '@/components/ui/AppSelect';
 import {
   MaintenancePriority,
   MaintenanceStatus,
-  MaintenanceTicket,
 } from '@/lib/mockData';
+import type {
+  WorkspaceMaintenanceRecord,
+  WorkspaceRoomRecord,
+  WorkspaceTenantRecord,
+} from '@/lib/demoWorkspace';
 
 const priorityColors: Record<MaintenancePriority, string> = {
   Critical: 'bg-red-100 text-red-700',
@@ -45,31 +49,268 @@ const MAINTENANCE_PRIORITY_OPTIONS = [
   { value: 'Low', label: 'Low' },
 ];
 
+const MAINTENANCE_CREATE_PRIORITY_OPTIONS = [
+  { value: 'Critical', label: 'Critical' },
+  { value: 'High', label: 'High' },
+  { value: 'Medium', label: 'Medium' },
+  { value: 'Low', label: 'Low' },
+];
+
 const MAINTENANCE_WORKFLOW_OPTIONS = [
   { value: 'Open', label: 'Open' },
   { value: 'In Progress', label: 'In Progress' },
   { value: 'Resolved', label: 'Resolved' },
 ];
 
+function AdminMaintenanceComposer({
+  addMaintenanceTicket,
+  onClose,
+  rooms,
+  tenants,
+}: {
+  addMaintenanceTicket: ReturnType<typeof useDemoWorkspace>['addMaintenanceTicket'];
+  onClose: () => void;
+  rooms: WorkspaceRoomRecord[];
+  tenants: WorkspaceTenantRecord[];
+}) {
+  const [title, setTitle] = useState('');
+  const [selectedRoomId, setSelectedRoomId] = useState(rooms[0]?.id ?? '');
+  const [selectedTenantId, setSelectedTenantId] = useState('none');
+  const [category, setCategory] = useState('Plumbing');
+  const [priority, setPriority] = useState<MaintenancePriority>('Medium');
+  const [description, setDescription] = useState('');
+
+  const roomOptions = useMemo(() => rooms.map((room) => ({
+    value: room.id,
+    label: `Room ${room.roomNumber} · ${room.type} · Floor ${room.floor}`,
+  })), [rooms]);
+
+  const selectedRoom = useMemo(
+    () => rooms.find((room) => room.id === selectedRoomId) ?? null,
+    [rooms, selectedRoomId],
+  );
+  const roomResidents = useMemo(
+    () => tenants.filter((tenant) => tenant.status === 'Active' && tenant.roomId === selectedRoomId),
+    [selectedRoomId, tenants],
+  );
+  const residentOptions = useMemo(() => ([
+    { value: 'none', label: 'No specific resident' },
+    ...roomResidents.map((tenant) => ({
+      value: tenant.id,
+      label: tenant.name,
+    })),
+  ]), [roomResidents]);
+
+  useEffect(() => {
+    if (rooms.length > 0 && !rooms.some((room) => room.id === selectedRoomId)) {
+      setSelectedRoomId(rooms[0].id);
+    }
+  }, [rooms, selectedRoomId]);
+
+  useEffect(() => {
+    if (selectedTenantId !== 'none' && !roomResidents.some((tenant) => tenant.id === selectedTenantId)) {
+      setSelectedTenantId('none');
+    }
+  }, [roomResidents, selectedTenantId]);
+
+  function resetForm() {
+    setTitle('');
+    setSelectedRoomId(rooms[0]?.id ?? '');
+    setSelectedTenantId('none');
+    setCategory('Plumbing');
+    setPriority('Medium');
+    setDescription('');
+  }
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+
+    if (!selectedRoom) {
+      toast.error('Select a room before creating the ticket.');
+      return;
+    }
+
+    if (!title.trim()) {
+      toast.error('Enter a ticket title before saving.');
+      return;
+    }
+
+    const selectedTenant = roomResidents.find((tenant) => tenant.id === selectedTenantId);
+
+    try {
+      addMaintenanceTicket({
+        title: title.trim(),
+        roomId: selectedRoom.id,
+        roomNumber: selectedRoom.roomNumber,
+        tenantId: selectedTenant?.id,
+        tenantName: selectedTenant?.name ?? 'Dorm Operations',
+        description: description.trim() || 'No extra details provided.',
+        category,
+        priority,
+      });
+      toast.success(`Ticket created for Room ${selectedRoom.roomNumber}`);
+      resetForm();
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create the maintenance ticket.';
+      toast.error(message);
+    }
+  }
+
+  if (rooms.length === 0) {
+    return null;
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-[hsl(var(--border))] p-6 space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Create a maintenance ticket</h2>
+          <p className="mt-1 text-[13px] text-[hsl(var(--muted-foreground))]">
+            Log a dorm issue, assign it to a room, and optionally link it to a resident.
+          </p>
+        </div>
+        <span className="rounded-full bg-[hsl(var(--muted))] px-3 py-1 text-[12px] font-medium text-[hsl(var(--muted-foreground))]">
+          Admin workflow
+        </span>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5 md:col-span-2">
+          <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Issue title</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Example: Water pressure is low in the shower"
+            className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
+            required
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Room</label>
+          <AppSelect
+            ariaLabel="Maintenance room"
+            fullWidth
+            value={selectedRoomId}
+            options={roomOptions}
+            onChange={setSelectedRoomId}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Resident</label>
+          <AppSelect
+            ariaLabel="Maintenance resident"
+            fullWidth
+            value={selectedTenantId}
+            options={residentOptions}
+            onChange={setSelectedTenantId}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Category</label>
+          <AppSelect
+            ariaLabel="Maintenance category"
+            fullWidth
+            value={category}
+            options={MAINTENANCE_CATEGORY_OPTIONS}
+            onChange={setCategory}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Priority</label>
+          <AppSelect
+            ariaLabel="Maintenance priority"
+            fullWidth
+            value={priority}
+            options={MAINTENANCE_CREATE_PRIORITY_OPTIONS}
+            onChange={(value) => setPriority(value as MaintenancePriority)}
+          />
+        </div>
+      </div>
+
+      {selectedRoom && (
+        <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.35)] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">
+              Room {selectedRoom.roomNumber}
+            </p>
+            <span className="text-[12px] text-[hsl(var(--muted-foreground))]">{selectedRoom.type}</span>
+            <span className="text-[hsl(var(--muted-foreground))]">·</span>
+            <span className="text-[12px] text-[hsl(var(--muted-foreground))]">Floor {selectedRoom.floor}</span>
+            <span className="text-[hsl(var(--muted-foreground))]">·</span>
+            <span className="text-[12px] text-[hsl(var(--muted-foreground))]">Status {selectedRoom.status}</span>
+          </div>
+          <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">
+            {roomResidents.length > 0
+              ? `Active residents: ${roomResidents.map((tenant) => tenant.name).join(', ')}`
+              : 'No active resident is currently assigned to this room.'}
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Description</label>
+        <textarea
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          rows={4}
+          placeholder="Describe the issue, when it started, and anything staff should know before inspection."
+          className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] resize-none"
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          className="px-4 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors"
+        >
+          Create Ticket
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            resetForm();
+            onClose();
+          }}
+          className="px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--muted-foreground))] bg-white border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function TenantMaintenanceView({
   addMaintenanceTicket,
+  tenantId,
   sessionName,
   roomNumber,
   roomId,
   tickets,
 }: {
   addMaintenanceTicket: ReturnType<typeof useDemoWorkspace>['addMaintenanceTicket'];
+  tenantId?: string;
   sessionName: string;
   roomNumber?: string;
   roomId?: string;
-  tickets: MaintenanceTicket[];
+  tickets: WorkspaceMaintenanceRecord[];
 }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Plumbing');
 
-  const myTickets = tickets.filter((ticket) => ticket.tenantName === sessionName);
+  const myTickets = tickets.filter((ticket) => (
+    tenantId
+      ? ticket.createdByTenantId === tenantId || (!ticket.createdByTenantId && ticket.tenantName === sessionName)
+      : ticket.tenantName === sessionName
+  ));
   const openCount = myTickets.filter((ticket) => ticket.status === 'Open').length;
   const inProgressCount = myTickets.filter((ticket) => ticket.status === 'In Progress').length;
   const resolvedCount = myTickets.filter((ticket) => ticket.status === 'Resolved').length;
@@ -78,21 +319,26 @@ function TenantMaintenanceView({
     event.preventDefault();
     if (!title.trim()) return;
 
-    addMaintenanceTicket({
-      title,
-      roomId: roomId ?? 'room-001',
-      roomNumber: roomNumber ?? 'N/A',
-      tenantName: sessionName,
-      description: description.trim() || 'No extra details provided.',
-      category,
-      priority: 'Medium',
-    });
+    try {
+      addMaintenanceTicket({
+        title,
+        roomId: roomId ?? 'room-001',
+        roomNumber: roomNumber ?? 'N/A',
+        tenantName: sessionName,
+        description: description.trim() || 'No extra details provided.',
+        category,
+        priority: 'Medium',
+      });
 
-    toast.success('Maintenance request submitted');
-    setTitle('');
-    setDescription('');
-    setCategory('Plumbing');
-    setShowForm(false);
+      toast.success('Maintenance request submitted');
+      setTitle('');
+      setDescription('');
+      setCategory('Plumbing');
+      setShowForm(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to submit the maintenance request.';
+      toast.error(message);
+    }
   }
 
   return (
@@ -228,10 +474,12 @@ export default function MaintenanceClient() {
   const {
     addMaintenanceTicket,
     currentDorm,
+    currentDormRooms,
     currentDormMaintenanceTickets,
     currentDormTenants,
     updateMaintenanceStatus,
   } = useDemoWorkspace();
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<MaintenanceStatus | 'All'>('All');
   const [filterPriority, setFilterPriority] = useState<MaintenancePriority | 'All'>('All');
@@ -263,6 +511,7 @@ export default function MaintenanceClient() {
     return (
       <TenantMaintenanceView
         addMaintenanceTicket={addMaintenanceTicket}
+        tenantId={session.tenantId}
         sessionName={session.name}
         roomNumber={session.roomNumber}
         roomId={tenantRecord?.roomId}
@@ -272,8 +521,13 @@ export default function MaintenanceClient() {
   }
 
   function handleStatusChange(id: string, status: MaintenanceStatus) {
-    updateMaintenanceStatus(id, status);
-    toast.success('Ticket status updated');
+    try {
+      updateMaintenanceStatus(id, status);
+      toast.success('Ticket status updated');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the ticket.';
+      toast.error(message);
+    }
   }
 
   const openCount = tickets.filter((ticket) => ticket.status === 'Open').length;
@@ -290,13 +544,24 @@ export default function MaintenanceClient() {
           </p>
         </div>
         <button
-          onClick={() => toast.info('Create ticket feature coming soon')}
-          className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors"
+          type="button"
+          onClick={() => setShowCreateForm((current) => !current)}
+          disabled={currentDormRooms.length === 0}
+          className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Plus size={15} />
-          New Ticket
+          {showCreateForm ? 'Close Form' : 'New Ticket'}
         </button>
       </div>
+
+      {showCreateForm && (
+        <AdminMaintenanceComposer
+          addMaintenanceTicket={addMaintenanceTicket}
+          onClose={() => setShowCreateForm(false)}
+          rooms={currentDormRooms}
+          tenants={currentDormTenants}
+        />
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-red-50 border border-red-200 rounded-xl p-5">

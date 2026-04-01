@@ -2,7 +2,7 @@ export type AuthMode = 'demo' | 'supabase';
 export type MembershipRole = 'Admin' | 'Tenant' | 'Chef';
 export type MembershipStatus = 'active' | 'invited' | 'suspended';
 export type InvitationRole = Extract<MembershipRole, 'Tenant' | 'Chef'>;
-export type InvitationStatus = 'pending' | 'accepted' | 'revoked';
+export type InvitationStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
 
 export interface User {
   id: string;
@@ -57,7 +57,11 @@ export interface Invitation {
   invitedByUserId: string;
   targetRecordId?: string;
   createdAt: string;
+  expiresAt: string;
   acceptedAt?: string;
+  revokedAt?: string;
+  revokedByUserId?: string;
+  expiredAt?: string;
 }
 
 export interface AuthSession {

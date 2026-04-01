@@ -5,6 +5,7 @@ import { BedDouble, CreditCard, Wrench, CheckCircle2, AlertTriangle, ChevronRigh
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AppSelect from '@/components/ui/AppSelect';
+import { getLatestInvoicePayment } from '@/lib/domain/paymentAnalytics';
 import { toast } from 'sonner';
 
 const mealPlanOptions = [
@@ -22,6 +23,7 @@ export default function TenantDashboardPage() {
     currentDormMaintenanceTickets,
     currentDormRooms,
     hasModule,
+    recordInvoicePayment,
     setTenantMealPreference,
     workspace,
   } = useDemoWorkspace();
@@ -29,9 +31,12 @@ export default function TenantDashboardPage() {
   const tenant = workspace.tenants.find((item) => item.id === currentTenantId);
   const room = currentDormRooms.find((item) => item.id === tenant?.roomId);
   const invoices = currentDormInvoices.filter((invoice) => invoice.tenantId === currentTenantId);
-  const tickets = currentDormMaintenanceTickets.filter((ticket) => ticket.tenantName === tenant?.name);
+  const tickets = currentDormMaintenanceTickets.filter((ticket) => (
+    ticket.createdByTenantId === currentTenantId || (!ticket.createdByTenantId && ticket.tenantName === tenant?.name)
+  ));
   const mealServiceEnabled = hasModule('mealService');
   const currentMealPreference = workspace.tenantMealPreferences.find((preference) => preference.tenantId === currentTenantId);
+  const hasAssignedRoom = Boolean(room);
 
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [requestTitle, setRequestTitle] = useState('');
@@ -42,6 +47,10 @@ export default function TenantDashboardPage() {
 
   const overdueInvoice = invoices.find(i => i.status === 'Overdue');
   const pendingInvoice = invoices.find(i => i.status === 'Issued');
+  const actionableInvoice = overdueInvoice ?? pendingInvoice;
+  const actionableInvoicePendingReview = actionableInvoice
+    ? getLatestInvoicePayment(workspace.payments, actionableInvoice.id, ['pending'])
+    : undefined;
 
   const amenityIcons: Record<string, React.ElementType> = {
     WiFi: Wifi,
@@ -54,20 +63,29 @@ export default function TenantDashboardPage() {
   function handleSubmitRequest(e: React.FormEvent) {
     e.preventDefault();
     if (!requestTitle.trim()) return;
-    addMaintenanceTicket({
-      title: requestTitle.trim(),
-      roomId: tenant?.roomId ?? 'room-001',
-      roomNumber: room?.roomNumber ?? 'N/A',
-      tenantName: tenant?.name ?? session?.name ?? 'Tenant',
-      description: requestDesc.trim() || 'No extra details provided.',
-      category: requestCategory,
-      priority: 'Medium',
-    });
-    toast.success('Maintenance request submitted! We\'ll respond within 24 hours.');
-    setRequestTitle('');
-    setRequestDesc('');
-    setRequestCategory('Plumbing');
-    setShowRequestForm(false);
+    try {
+      if (!tenant || tenant.roomId === 'unassigned' || !room) {
+        throw new Error('A room must be assigned before maintenance requests can be submitted.');
+      }
+
+      addMaintenanceTicket({
+        title: requestTitle.trim(),
+        roomId: tenant.roomId,
+        roomNumber: room.roomNumber,
+        tenantName: tenant?.name ?? session?.name ?? 'Tenant',
+        description: requestDesc.trim() || 'No extra details provided.',
+        category: requestCategory,
+        priority: 'Medium',
+      });
+      toast.success('Maintenance request submitted! We\'ll respond within 24 hours.');
+      setRequestTitle('');
+      setRequestDesc('');
+      setRequestCategory('Plumbing');
+      setShowRequestForm(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to submit the maintenance request.';
+      toast.error(message);
+    }
   }
 
   useEffect(() => {
@@ -76,11 +94,16 @@ export default function TenantDashboardPage() {
   }, [currentMealPreference]);
 
   function handleSaveMealPlan() {
-    setTenantMealPreference(currentTenantId, {
-      plan: mealPlan as 'No Meal Plan' | 'Breakfast Only' | 'Half Board' | 'Full Board',
-      notes: mealNotes.trim(),
-    });
-    toast.success('Meal preference updated');
+    try {
+      setTenantMealPreference(currentTenantId, {
+        plan: mealPlan as 'No Meal Plan' | 'Breakfast Only' | 'Half Board' | 'Full Board',
+        notes: mealNotes.trim(),
+      });
+      toast.success('Meal preference updated');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the meal preference.';
+      toast.error(message);
+    }
   }
 
   const statusColors: Record<string, string> = {
@@ -117,6 +140,15 @@ export default function TenantDashboardPage() {
           )}
         </div>
 
+        {!hasAssignedRoom && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-[13px] font-medium text-amber-900">Room reassignment is still required.</p>
+            <p className="mt-1 text-[12px] text-amber-800">
+              Your invitation was accepted, but the reserved room could not be finalized. Dorm management needs to assign a new room.
+            </p>
+          </div>
+        )}
+
         {/* KPI row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-[hsl(var(--primary))] text-white rounded-xl p-5 flex flex-col gap-2">
@@ -124,8 +156,10 @@ export default function TenantDashboardPage() {
               <BedDouble size={20} className="opacity-80" />
               <span className="text-[11px] font-medium uppercase tracking-wider opacity-70">Your Room</span>
             </div>
-            <p className="text-3xl font-700">Room {room?.roomNumber}</p>
-            <p className="text-[13px] opacity-70">{room?.type} · Floor {room?.floor}</p>
+            <p className="text-3xl font-700">{hasAssignedRoom ? `Room ${room?.roomNumber}` : 'Unassigned'}</p>
+            <p className="text-[13px] opacity-70">
+              {hasAssignedRoom ? `${room?.type} · Floor ${room?.floor}` : 'Awaiting admin reassignment'}
+            </p>
           </div>
 
           <div className="bg-white rounded-xl p-5 border border-[hsl(var(--border))] flex flex-col gap-2">
@@ -133,11 +167,13 @@ export default function TenantDashboardPage() {
               <div className="bg-green-50 p-2 rounded-lg">
                 <CreditCard size={16} className="text-green-600" />
               </div>
-              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${pendingInvoice ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                {pendingInvoice ? 'Due soon' : 'All paid'}
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${actionableInvoice ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                {actionableInvoice ? 'Due soon' : 'All paid'}
               </span>
             </div>
-            <p className="text-2xl font-700 text-[hsl(var(--foreground))]">${room?.rentPerMonth}/mo</p>
+            <p className="text-2xl font-700 text-[hsl(var(--foreground))]">
+              {room ? `$${room.rentPerMonth}/mo` : actionableInvoice ? `$${actionableInvoice.amount}` : 'Pending'}
+            </p>
             <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Monthly rent</p>
           </div>
 
@@ -160,7 +196,9 @@ export default function TenantDashboardPage() {
                 <Home size={16} className="text-blue-600" />
               </div>
             </div>
-            <p className="text-2xl font-700 text-[hsl(var(--foreground))]">{room?.occupants}/{room?.capacity}</p>
+            <p className="text-2xl font-700 text-[hsl(var(--foreground))]">
+              {room ? `${room.occupants}/${room.capacity}` : '--'}
+            </p>
             <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Occupants in room</p>
           </div>
         </div>
@@ -173,15 +211,15 @@ export default function TenantDashboardPage() {
             <div className="space-y-3">
               <div className="flex justify-between text-[13px]">
                 <span className="text-[hsl(var(--muted-foreground))]">Room Number</span>
-                <span className="font-medium text-[hsl(var(--foreground))]">{room?.roomNumber}</span>
+                <span className="font-medium text-[hsl(var(--foreground))]">{room?.roomNumber ?? 'Awaiting reassignment'}</span>
               </div>
               <div className="flex justify-between text-[13px]">
                 <span className="text-[hsl(var(--muted-foreground))]">Type</span>
-                <span className="font-medium text-[hsl(var(--foreground))]">{room?.type}</span>
+                <span className="font-medium text-[hsl(var(--foreground))]">{room?.type ?? 'TBD'}</span>
               </div>
               <div className="flex justify-between text-[13px]">
                 <span className="text-[hsl(var(--muted-foreground))]">Floor</span>
-                <span className="font-medium text-[hsl(var(--foreground))]">{room?.floor}</span>
+                <span className="font-medium text-[hsl(var(--foreground))]">{room?.floor ?? 'TBD'}</span>
               </div>
               <div className="flex justify-between text-[13px]">
                 <span className="text-[hsl(var(--muted-foreground))]">Move-in Date</span>
@@ -189,7 +227,9 @@ export default function TenantDashboardPage() {
               </div>
               <div className="flex justify-between text-[13px]">
                 <span className="text-[hsl(var(--muted-foreground))]">Monthly Rent</span>
-                <span className="font-medium text-[hsl(var(--foreground))]">${room?.rentPerMonth}</span>
+                <span className="font-medium text-[hsl(var(--foreground))]">
+                  {room ? `$${room.rentPerMonth}` : actionableInvoice ? `$${actionableInvoice.amount}` : 'Pending'}
+                </span>
               </div>
             </div>
             <div>
@@ -204,6 +244,9 @@ export default function TenantDashboardPage() {
                     </span>
                   );
                 })}
+                {!room && (
+                  <span className="text-[12px] text-[hsl(var(--muted-foreground))]">Amenities appear after a room is assigned.</span>
+                )}
               </div>
             </div>
             {room?.notes && (
@@ -240,13 +283,34 @@ export default function TenantDashboardPage() {
                 </div>
               ))}
             </div>
-            {pendingInvoice && (
+            {actionableInvoice && (
               <button
-                onClick={() => toast.success('Redirecting to payment gateway...')}
-                className="w-full py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors flex items-center justify-center gap-2"
+                disabled={Boolean(actionableInvoicePendingReview)}
+                onClick={() => {
+                  if (!actionableInvoice) {
+                    return;
+                  }
+
+                  try {
+                    recordInvoicePayment(actionableInvoice.id);
+                    toast.success(`Payment submitted for ${actionableInvoice.period}`);
+                  } catch (error) {
+                    const message = error instanceof Error
+                      ? error.message
+                      : 'Unable to record the payment.';
+                    toast.error(message);
+                  }
+                }}
+                className={`w-full py-2.5 text-[13px] font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                  actionableInvoicePendingReview
+                    ? 'cursor-not-allowed bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'
+                    : 'text-white bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.9)]'
+                }`}
               >
                 <CreditCard size={15} />
-                Pay ${pendingInvoice.amount} Now
+                {actionableInvoicePendingReview
+                  ? 'Payment under review'
+                  : `Submit $${actionableInvoice.amount} for review`}
               </button>
             )}
           </div>
@@ -256,8 +320,11 @@ export default function TenantDashboardPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Maintenance</h2>
               <button
+                disabled={!hasAssignedRoom}
                 onClick={() => setShowRequestForm(true)}
-                className="flex items-center gap-1.5 text-[12px] font-medium text-[hsl(var(--primary))] hover:underline"
+                className={`flex items-center gap-1.5 text-[12px] font-medium ${
+                  hasAssignedRoom ? 'text-[hsl(var(--primary))] hover:underline' : 'cursor-not-allowed text-[hsl(var(--muted-foreground))]'
+                }`}
               >
                 <Plus size={13} />
                 New Request

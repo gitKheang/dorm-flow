@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata, Viewport } from 'next';
 import '../styles/tailwind.css';
 import { Toaster } from 'sonner';
+import DemoAppProvider from '@/components/DemoAppProvider';
 import DemoSessionProvider from '@/components/DemoSessionProvider';
 import DemoWorkspaceProvider from '@/components/DemoWorkspaceProvider';
 
@@ -24,12 +25,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <DemoWorkspaceProvider>
+        <DemoAppProvider>
           <DemoSessionProvider>
-            {children}
-            <Toaster position="bottom-right" richColors closeButton />
+            <DemoWorkspaceProvider>
+              {children}
+              <Toaster position="bottom-right" richColors closeButton />
+            </DemoWorkspaceProvider>
           </DemoSessionProvider>
-        </DemoWorkspaceProvider>
+        </DemoAppProvider>
       </body>
     </html>
   );

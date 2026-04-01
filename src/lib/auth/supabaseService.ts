@@ -18,8 +18,10 @@ export function createSupabaseAuthService(): AuthService {
     signUpOwner: (): AuthMutationResult => notImplemented(),
     acceptInvitation: (): AuthMutationResult => notImplemented(),
     createInvitation: (): AuthMutationResult => notImplemented(),
+    revokeInvitation: (): AuthMutationResult => notImplemented(),
     switchActiveDorm: (): AuthMutationResult => notImplemented(),
     updateUser: (): AuthMutationResult => notImplemented(),
+    changePassword: (): AuthMutationResult => notImplemented(),
     ensureOwnerMembership: (): AuthMutationResult => notImplemented(),
   };
 }

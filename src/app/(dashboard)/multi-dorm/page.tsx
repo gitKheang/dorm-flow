@@ -14,7 +14,7 @@ const currency = new Intl.NumberFormat('en-US', {
 });
 
 export default function MultiDormPage() {
-  const { ensureAdminMembershipForDorm, session, switchActiveDorm } = useDemoSession();
+  const { session, switchActiveDorm } = useDemoSession();
   const {
     addDorm,
     archiveDorm,
@@ -78,22 +78,26 @@ export default function MultiDormPage() {
       return;
     }
 
-    const nextDorm = addDorm({
-      name: name.trim(),
-      city: city.trim(),
-      address: address.trim(),
-      timezone,
-      waitlist: Number(waitlist) || 0,
-    });
-    ensureAdminMembershipForDorm(nextDorm.id);
+    try {
+      const nextDorm = addDorm({
+        name: name.trim(),
+        city: city.trim(),
+        address: address.trim(),
+        timezone,
+        waitlist: Number(waitlist) || 0,
+      });
 
-    toast.success(`${nextDorm.name} added to your portfolio`);
-    setName('');
-    setCity('');
-    setAddress('');
-    setTimezone('UTC+7 (Indochina Time)');
-    setWaitlist('0');
-    setShowForm(false);
+      toast.success(`${nextDorm.name} added and set as the active workspace`);
+      setName('');
+      setCity('');
+      setAddress('');
+      setTimezone('UTC+7 (Indochina Time)');
+      setWaitlist('0');
+      setShowForm(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to add the dorm.';
+      toast.error(message);
+    }
   }
 
   function handleArchiveDorm(dormId: string, dormName: string) {
@@ -104,6 +108,24 @@ export default function MultiDormPage() {
     }
 
     toast.success(`${dormName} archived from the active portfolio`);
+  }
+
+  function activateDormWorkspace(dormId: string, successMessage?: string) {
+    try {
+      const nextSession = switchActiveDorm(dormId);
+      if (!nextSession) {
+        throw new Error('Unable to switch dorm.');
+      }
+
+      if (successMessage) {
+        toast.success(successMessage);
+      }
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to switch dorm.';
+      toast.error(message);
+      return false;
+    }
   }
 
   return (
@@ -310,8 +332,7 @@ export default function MultiDormPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          switchActiveDorm(item.dorm.id);
-                          toast.success(`${item.dorm.name} is now the active workspace`);
+                          activateDormWorkspace(item.dorm.id, `${item.dorm.name} is now the active workspace`);
                         }}
                         className="rounded-lg bg-[hsl(var(--primary))] px-4 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)]"
                       >
@@ -320,7 +341,16 @@ export default function MultiDormPage() {
                     )}
                     <Link
                       href="/settings"
-                      onClick={() => switchActiveDorm(item.dorm.id)}
+                      onClick={(event) => {
+                        if (isActiveDorm) {
+                          return;
+                        }
+
+                        const didSwitch = activateDormWorkspace(item.dorm.id);
+                        if (!didSwitch) {
+                          event.preventDefault();
+                        }
+                      }}
                       className="rounded-lg border border-[hsl(var(--border))] px-4 py-2 text-[12px] font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
                     >
                       Manage

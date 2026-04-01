@@ -4,7 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend
 } from 'recharts';
-import { occupancyTrendData } from '@/lib/mockData';
+import type { OccupancyTrendPoint } from '@/lib/domain/workspaceAnalytics';
 
 interface TooltipPayload {
   name: string;
@@ -34,7 +34,15 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   );
 }
 
-export default function OccupancyChart() {
+export default function OccupancyChart({
+  data,
+  rangeLabel,
+  totalRooms,
+}: {
+  data: OccupancyTrendPoint[];
+  rangeLabel: string;
+  totalRooms: number;
+}) {
   return (
     <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
       <div className="flex items-start justify-between mb-6">
@@ -43,11 +51,11 @@ export default function OccupancyChart() {
           <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">Rooms occupied vs available — last 30 days</p>
         </div>
         <span className="text-[12px] text-[hsl(var(--muted-foreground))] bg-[hsl(var(--muted))] rounded-lg px-3 py-1.5">
-          Feb 25 – Mar 26
+          {rangeLabel}
         </span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
-        <AreaChart data={occupancyTrendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="gradOccupied" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#0f4c81" stopOpacity={0.2} />
@@ -70,7 +78,7 @@ export default function OccupancyChart() {
             tick={{ fontSize: 11, fill: 'hsl(215 16% 46%)' }}
             tickLine={false}
             axisLine={false}
-            domain={[0, 14]}
+            domain={[0, Math.max(totalRooms, 1)]}
           />
           <Tooltip content={<CustomTooltip />} />
           <Legend

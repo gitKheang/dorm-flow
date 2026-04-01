@@ -217,10 +217,8 @@ export default function AuthClient() {
       : mode === 'register'
         ? 'Public signup is limited to dorm owners. Tenant and chef access must come through invitations.'
         : 'Tenant and chef accounts are invite-only. Use the email and code sent by your dorm owner.';
-  const isScrollableMode = mode !== 'login';
-
   return (
-    <div className="min-h-screen flex lg:h-screen lg:overflow-hidden">
+    <div className="min-h-screen flex lg:h-[100dvh] lg:overflow-hidden">
       <div className="hidden lg:flex lg:w-[52%] xl:w-[55%] bg-[hsl(var(--primary))] flex-col justify-between p-12 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -translate-y-32 translate-x-32" />
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/5 rounded-full translate-y-24 -translate-x-16" />
@@ -259,25 +257,15 @@ export default function AuthClient() {
         </div>
       </div>
 
-      <div
-        className={`flex-1 min-h-0 flex flex-col items-center px-6 bg-[hsl(var(--background))] ${
-          isScrollableMode ? 'justify-start overflow-y-auto py-6 sm:py-8' : 'justify-center py-10'
-        }`}
-      >
-        <div className="w-full max-w-[440px] space-y-5">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-[hsl(var(--background))] px-6 py-6 sm:py-8 lg:py-10">
+        <div className="mx-auto flex min-h-full w-full max-w-[440px] flex-col">
           <div className="lg:hidden flex items-center gap-2 justify-center mb-2">
             <AppLogo size={36} />
             <span className="text-xl font-semibold text-[hsl(var(--foreground))]">DormFlow</span>
           </div>
 
-          <div
-            className={`rounded-[28px] border border-[hsl(var(--border))] bg-white/95 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)] backdrop-blur ${
-              isScrollableMode
-                ? 'flex flex-col'
-                : 'flex h-[min(760px,calc(100vh-1.5rem))] flex-col overflow-hidden sm:h-[min(760px,calc(100vh-4rem))]'
-            }`}
-          >
-            <div className={`${isScrollableMode ? '' : 'shrink-0 '}space-y-5 p-5 sm:p-6`}>
+          <div className="my-auto rounded-[28px] border border-[hsl(var(--border))] bg-white/95 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)] backdrop-blur overflow-hidden">
+            <div className="space-y-5 p-5 sm:p-6">
               <div className="bg-[hsl(var(--muted))] rounded-xl p-1 grid grid-cols-3 gap-1">
                 {([
                   { id: 'login' as const, label: 'Sign In' },
@@ -311,7 +299,7 @@ export default function AuthClient() {
               </div>
             </div>
 
-            <div className={`${isScrollableMode ? '' : 'flex-1 '}border-t border-[hsl(var(--border))] p-5 sm:p-6`}>
+            <div className="border-t border-[hsl(var(--border))] p-5 sm:p-6">
               {mode === 'login' && (
                 <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4 slide-up">
                   <div className="space-y-1.5">

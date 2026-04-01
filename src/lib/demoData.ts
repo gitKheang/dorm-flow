@@ -1,8 +1,12 @@
+import type { InvitationStatus } from '@/lib/auth/types';
 import type { ActivityItem, Invoice, MaintenanceTicket, Room, Tenant } from '@/lib/mockData';
 import type { ChefShift, ChefStatus, DemoDorm, MealItemRecord, MealPlan, TenantMealPreference } from '@/lib/demoWorkspace';
 
+export type WorkspaceInvitationLifecycleState = Extract<InvitationStatus, 'pending' | 'revoked' | 'expired'>;
+
 export interface WorkspaceTenant extends Tenant {
   dormId: string;
+  invitationLifecycleState?: WorkspaceInvitationLifecycleState;
 }
 
 export interface WorkspaceRoom extends Room {
@@ -11,10 +15,13 @@ export interface WorkspaceRoom extends Room {
 
 export interface WorkspaceInvoice extends Invoice {
   dormId: string;
+  billingPeriodKey?: string;
 }
 
 export interface WorkspaceMaintenanceTicket extends MaintenanceTicket {
   dormId: string;
+  createdByTenantId?: string;
+  createdByMembershipId?: string;
 }
 
 export interface WorkspaceActivityItem extends ActivityItem {
@@ -29,6 +36,7 @@ export interface WorkspaceChef {
   specialty: string;
   status: ChefStatus;
   dormId: string;
+  invitationLifecycleState?: WorkspaceInvitationLifecycleState;
 }
 
 export const DEMO_DORMS: DemoDorm[] = [
@@ -134,7 +142,7 @@ export const DEMO_ACTIVITY_FEED: WorkspaceActivityItem[] = [
 export const DEMO_CHEFS: WorkspaceChef[] = [
   { id: 'chef-001', dormId: 'dorm-001', name: 'Chef Kim', email: 'chef.kim@sunrisedorm.app', shift: 'Morning', specialty: 'Dorm Meal Planning', status: 'Active' },
   { id: 'chef-002', dormId: 'dorm-002', name: 'Chef Dara', email: 'chef.dara@riversideresidences.app', shift: 'Split', specialty: 'Bulk Dinner Service', status: 'Active' },
-  { id: 'chef-003', dormId: 'dorm-003', name: 'Chef Sokha', email: 'chef.sokha@northgatehouse.app', shift: 'Evening', specialty: 'Late Service & Inventory', status: 'Invited' },
+  { id: 'chef-003', dormId: 'dorm-003', name: 'Chef Sokha', email: 'chef.sokha@northgatehouse.app', shift: 'Evening', specialty: 'Late Service & Inventory', status: 'Invited', invitationLifecycleState: 'pending' },
 ];
 
 export const DEMO_TENANT_MEAL_PREFERENCES: TenantMealPreference[] = [

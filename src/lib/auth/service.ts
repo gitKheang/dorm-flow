@@ -36,6 +36,11 @@ export interface CreateInvitationInput {
   targetRecordId?: string;
 }
 
+export interface RevokeInvitationInput {
+  invitationId: string;
+  revokedByUserId: string;
+}
+
 export interface SwitchActiveDormInput {
   userId: string;
   dormId: string;
@@ -45,6 +50,12 @@ export interface UpdateUserInput {
   userId: string;
   fullName?: string;
   email?: string;
+}
+
+export interface ChangePasswordInput {
+  userId: string;
+  currentPassword: string;
+  nextPassword: string;
 }
 
 export interface EnsureOwnerMembershipInput {
@@ -67,8 +78,10 @@ export interface AuthService {
   signUpOwner: (snapshot: AuthStoreSnapshot, input: SignUpOwnerInput) => AuthMutationResult;
   acceptInvitation: (snapshot: AuthStoreSnapshot, input: AcceptInvitationInput) => AuthMutationResult;
   createInvitation: (snapshot: AuthStoreSnapshot, input: CreateInvitationInput) => AuthMutationResult;
+  revokeInvitation: (snapshot: AuthStoreSnapshot, input: RevokeInvitationInput) => AuthMutationResult;
   switchActiveDorm: (snapshot: AuthStoreSnapshot, input: SwitchActiveDormInput) => AuthMutationResult;
   updateUser: (snapshot: AuthStoreSnapshot, input: UpdateUserInput) => AuthMutationResult;
+  changePassword: (snapshot: AuthStoreSnapshot, input: ChangePasswordInput) => AuthMutationResult;
   ensureOwnerMembership: (snapshot: AuthStoreSnapshot, input: EnsureOwnerMembershipInput) => AuthMutationResult;
 }
 

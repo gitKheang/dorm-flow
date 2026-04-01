@@ -11,7 +11,11 @@
     "lint:fix": "next lint --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md,json}\"",
     "serve": "next start -p 4028",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "validate:mock-data": "tsx scripts/validate-mock-data.ts",
+    "validate:invitations": "tsx scripts/validate-invitation-lifecycle.ts",
+    "validate:multi-dorm": "tsx scripts/validate-multi-dorm.ts",
+    "validate:workflow-safety": "tsx scripts/validate-workflow-safety.ts"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
@@ -42,6 +46,7 @@
     "prettier": "^3.5.3",
     "tailwindcss": "3.4.6",
     "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

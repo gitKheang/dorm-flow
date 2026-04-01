@@ -34,6 +34,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
     }
   }, [accessState, router, session]);
 
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [pathname]);
+
   if (accessState !== 'allowed' || !session) {
     const statusMessage =
       accessState === 'unauthenticated'

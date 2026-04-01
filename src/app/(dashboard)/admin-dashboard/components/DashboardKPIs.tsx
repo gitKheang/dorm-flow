@@ -2,32 +2,17 @@
 import React from 'react';
 import Link from 'next/link';
 import { BedDouble, TrendingUp, AlertTriangle, Wrench, DoorOpen, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import type { Invoice, MaintenanceTicket, Room } from '@/lib/mockData';
+import type { DormAnalyticsSnapshot } from '@/lib/domain/workspaceAnalytics';
 
 export default function DashboardKPIs({
-  invoices,
-  maintenanceTickets,
-  rooms,
+  analytics,
 }: {
-  invoices: Invoice[];
-  maintenanceTickets: MaintenanceTicket[];
-  rooms: Room[];
+  analytics: DormAnalyticsSnapshot;
 }) {
-  const totalRooms = rooms.length;
-  const occupiedRooms = rooms.filter((room) => room.status === 'Occupied').length;
-  const availableRooms = rooms.filter((room) => room.status === 'Available').length;
-  const underMaintenance = rooms.filter((room) => room.status === 'Under Maintenance').length;
-  const occupancyRate = Math.round((occupiedRooms / totalRooms) * 100);
-
-  const paidInvoices = invoices.filter((invoice) => invoice.status === 'Paid');
-  const overdueInvoices = invoices.filter((invoice) => invoice.status === 'Overdue');
-  const issuedInvoices = invoices.filter((invoice) => invoice.status === 'Issued');
-  const collectionRate = invoices.length > 0 ? Math.round((paidInvoices.length / invoices.length) * 100) : 0;
-  const overdueAmount = overdueInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
-  const monthlyRevenue = paidInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
-
-  const openTickets = maintenanceTickets.filter((ticket) => ticket.status === 'Open').length;
-  const criticalTickets = maintenanceTickets.filter((ticket) => ticket.priority === 'Critical' && ticket.status !== 'Resolved').length;
+  const OccupancyDirectionIcon =
+    analytics.occupancy.changeFromRangeStart >= 0 ? ArrowUpRight : ArrowDownRight;
+  const CollectionDirectionIcon =
+    analytics.payments.paidMonthOverMonthChange >= 0 ? ArrowUpRight : ArrowDownRight;
 
   return (
     // 6 cards: hero(col-span-2) + 5 regular → grid-cols-4 → row1: hero(2)+2regular, row2: 3regular (last spans 1 each, last one spans 2 to avoid orphan? Actually 3 on row2 fits 3cols... use grid-cols-3 for row2 via subgrid or just use a single flat grid-cols-4 with careful spans)
@@ -46,8 +31,8 @@ export default function DashboardKPIs({
         <div className="relative flex items-start justify-between">
           <div>
             <p className="text-[12px] font-medium uppercase tracking-wider text-white/70">Occupancy Rate</p>
-            <p className="text-5xl font-700 tabular-nums mt-1">{occupancyRate}%</p>
-            <p className="text-[13px] text-white/70 mt-1">{occupiedRooms} of {totalRooms} rooms occupied</p>
+            <p className="text-5xl font-700 tabular-nums mt-1">{analytics.occupancy.occupancyRate}%</p>
+            <p className="text-[13px] text-white/70 mt-1">{analytics.occupancy.occupiedRooms} of {analytics.occupancy.totalRooms} rooms occupied</p>
           </div>
           <div className="bg-white/10 p-3 rounded-xl">
             <BedDouble size={24} />
@@ -56,17 +41,20 @@ export default function DashboardKPIs({
         <div className="relative">
           <div className="flex justify-between text-[12px] text-white/70 mb-1.5">
             <span>Occupancy</span>
-            <span>{occupancyRate}%</span>
+            <span>{analytics.occupancy.occupancyRate}%</span>
           </div>
           <div className="h-2 bg-white/20 rounded-full overflow-hidden">
             <div
               className="h-full bg-white rounded-full transition-all duration-700"
-              style={{ width: `${occupancyRate}%` }}
+              style={{ width: `${analytics.occupancy.occupancyRate}%` }}
             />
           </div>
           <div className="flex items-center gap-1.5 mt-3">
-            <ArrowUpRight size={14} />
-            <span className="text-[12px] text-white/80">+3% vs last month</span>
+            <OccupancyDirectionIcon size={14} />
+            <span className="text-[12px] text-white/80">
+              {analytics.occupancy.changeFromRangeStart >= 0 ? '+' : ''}
+              {analytics.occupancy.changeFromRangeStart}% vs range start
+            </span>
           </div>
         </div>
       </div>
@@ -77,15 +65,16 @@ export default function DashboardKPIs({
             <TrendingUp size={18} className="text-green-600" />
           </div>
           <span className="flex items-center gap-1 text-[12px] text-green-600 font-medium">
-            <ArrowUpRight size={12} />
-            +5%
+            <CollectionDirectionIcon size={12} />
+            {analytics.payments.paidMonthOverMonthChange >= 0 ? '+' : ''}
+            {analytics.payments.paidMonthOverMonthChange}%
           </span>
         </div>
         <div>
           <p className="text-[12px] font-500 uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Collection Rate</p>
-          <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">{collectionRate}%</p>
+          <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">{analytics.payments.collectionRate}%</p>
         </div>
-          <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{paidInvoices.length} of {invoices.length} invoices paid</p>
+          <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{analytics.payments.successfulPaymentCount} confirmed payments on record</p>
       </div>
       {/* Card 3: Overdue Invoices — ALERT */}
       <div className="bg-red-50 rounded-xl p-5 border border-red-200 flex flex-col gap-3">
@@ -100,9 +89,9 @@ export default function DashboardKPIs({
         </div>
         <div>
           <p className="text-[12px] font-500 uppercase tracking-wider text-red-600/70">Overdue Invoices</p>
-          <p className="text-3xl font-700 tabular-nums text-red-700 mt-0.5">{overdueInvoices?.length}</p>
+          <p className="text-3xl font-700 tabular-nums text-red-700 mt-0.5">{analytics.payments.overdueInvoiceCount}</p>
         </div>
-        <p className="text-[12px] text-red-600">${overdueAmount?.toLocaleString()} total outstanding</p>
+        <p className="text-[12px] text-red-600">${analytics.payments.overdueAmount.toLocaleString()} total outstanding</p>
       </div>
       {/* Card 4: Open Maintenance — WARNING */}
       <div className="bg-amber-50 rounded-xl p-5 border border-amber-200 flex flex-col gap-3">
@@ -110,17 +99,17 @@ export default function DashboardKPIs({
           <div className="bg-amber-100 p-2.5 rounded-lg">
             <Wrench size={18} className="text-amber-600" />
           </div>
-          {criticalTickets > 0 && (
+          {analytics.maintenance.criticalTickets > 0 && (
             <span className="text-[11px] font-600 bg-amber-500 text-white rounded-full px-2 py-0.5">
-              {criticalTickets} critical
+              {analytics.maintenance.criticalTickets} critical
             </span>
           )}
         </div>
         <div>
           <p className="text-[12px] font-500 uppercase tracking-wider text-amber-700/70">Open Tickets</p>
-          <p className="text-3xl font-700 tabular-nums text-amber-800 mt-0.5">{openTickets}</p>
+          <p className="text-3xl font-700 tabular-nums text-amber-800 mt-0.5">{analytics.maintenance.openTickets}</p>
         </div>
-        <p className="text-[12px] text-amber-700">{maintenanceTickets.filter((ticket) => ticket.status === 'In Progress').length} in progress</p>
+        <p className="text-[12px] text-amber-700">{analytics.maintenance.inProgressTickets} in progress</p>
       </div>
       {/* Card 5: Available Rooms */}
       <div className="bg-white rounded-xl p-5 border border-[hsl(var(--border))] flex flex-col gap-3">
@@ -128,15 +117,15 @@ export default function DashboardKPIs({
           <div className="bg-blue-50 p-2.5 rounded-lg">
             <DoorOpen size={18} className="text-blue-600" />
           </div>
-          {underMaintenance > 0 && (
+          {analytics.occupancy.underMaintenanceRooms > 0 && (
             <span className="text-[11px] text-[hsl(var(--muted-foreground))] bg-[hsl(var(--muted))] rounded-full px-2 py-0.5">
-              {underMaintenance} in maint.
+              {analytics.occupancy.underMaintenanceRooms} in maint.
             </span>
           )}
         </div>
         <div>
           <p className="text-[12px] font-500 uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Available Rooms</p>
-          <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">{availableRooms}</p>
+          <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">{analytics.occupancy.availableRooms}</p>
         </div>
         <Link href="/room-management" className="text-[12px] text-[hsl(var(--primary))] hover:underline font-medium">
           View room inventory →
@@ -149,28 +138,28 @@ export default function DashboardKPIs({
             <DollarSign size={18} className="text-green-600" />
           </div>
           <span className="flex items-center gap-1 text-[12px] text-[hsl(var(--muted-foreground))] font-medium">
-            March 2026
+            {analytics.labels.monthYear}
           </span>
         </div>
         <div className="flex items-end justify-between">
           <div>
             <p className="text-[12px] font-500 uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Revenue Collected</p>
-            <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">${monthlyRevenue?.toLocaleString()}</p>
+            <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">${analytics.payments.netCollectedAmount.toLocaleString()}</p>
           </div>
           <div className="text-right">
             <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Pending collection</p>
             <p className="text-xl font-600 tabular-nums text-[hsl(var(--muted-foreground))]">
-              ${issuedInvoices?.reduce((s, i) => s + i?.amount, 0)?.toLocaleString()}
+              ${analytics.payments.issuedAmount.toLocaleString()}
             </p>
           </div>
         </div>
         <div className="h-1.5 bg-[hsl(var(--muted))] rounded-full overflow-hidden">
           <div
             className="h-full bg-green-500 rounded-full"
-            style={{ width: `${collectionRate}%` }}
+            style={{ width: `${analytics.payments.collectionRate}%` }}
           />
         </div>
-        <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{collectionRate}% of expected monthly rent collected</p>
+        <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{analytics.payments.collectionRate}% of expected monthly rent collected</p>
       </div>
     </div>
   );

@@ -83,32 +83,66 @@ export default function RoomManagementClient() {
   }
 
   function handleBulkDelete() {
-    const count = selectedIds.size;
-    Array.from(selectedIds).forEach((roomId) => deleteRoom(roomId));
-    setSelectedIds(new Set());
-    toast.success(`${count} room${count > 1 ? 's' : ''} removed`);
+    if (selectedIds.size > 1) {
+      toast.info('Bulk room deletion is disabled. Review each room individually before removal so resident, maintenance, and billing history stay safe.');
+      return;
+    }
+
+    try {
+      const [roomId] = Array.from(selectedIds);
+      if (!roomId) {
+        return;
+      }
+
+      deleteRoom(roomId);
+      setSelectedIds(new Set());
+      toast.success('Selected room removed');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove the selected rooms.';
+      toast.error(message);
+    }
   }
 
   function handleStatusChange(roomId: string, newStatus: RoomStatus) {
-    updateRoomStatus(roomId, newStatus);
-    toast.success('Room status updated');
+    try {
+      updateRoomStatus(roomId, newStatus);
+      toast.success('Room status updated');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the room status.';
+      toast.error(message);
+    }
   }
 
   function handleAddRoom(room: Room) {
-    addRoom(room);
-    setShowAddModal(false);
-    toast.success(`Room ${room.roomNumber} added successfully`);
+    try {
+      addRoom(room);
+      setShowAddModal(false);
+      toast.success(`Room ${room.roomNumber} added successfully`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to add the room.';
+      toast.error(message);
+    }
   }
 
   function handleEditRoom(room: Room) {
-    updateRoom(room);
-    setEditRoom(null);
-    toast.success(`Room ${room.roomNumber} updated`);
+    try {
+      updateRoom(room);
+      setEditRoom(null);
+      toast.success(`Room ${room.roomNumber} updated`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the room.';
+      toast.error(message);
+    }
   }
 
   function handleDeleteRoom(room: Room) {
-    deleteRoom(room.id);
-    toast.success(`Room ${room.roomNumber} removed`);
+    try {
+      deleteRoom(room.id);
+      toast.success(`Room ${room.roomNumber} removed`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove the room.';
+      toast.error(message);
+    }
   }
 
   const SortIcon = ({ col }: { col: SortKey }) => {
@@ -258,10 +292,15 @@ export default function RoomManagementClient() {
           <div className="flex-1" />
           <button
             onClick={handleBulkDelete}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+            disabled={selectedIds.size > 1}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg border transition-colors ${
+              selectedIds.size > 1
+                ? 'cursor-not-allowed border-[hsl(var(--border))] bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'
+                : 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100'
+            }`}
           >
             <Trash2 size={14} />
-            Delete selected
+            {selectedIds.size > 1 ? 'Review individually' : 'Delete selected'}
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}

@@ -10,8 +10,61 @@ import { getRoleLabel } from '@/lib/demoSession';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'dorm';
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Something went wrong.';
+}
+
+function ToggleSwitch({
+  checked,
+  disabled = false,
+  onClick,
+  label,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-shrink-0">
+      <span
+        className={`min-w-7 text-right text-[11px] font-medium ${
+          checked
+            ? 'text-[hsl(var(--primary))]'
+            : 'text-[hsl(var(--muted-foreground))]'
+        }`}
+      >
+        {checked ? 'On' : 'Off'}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onClick}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary)/0.35)] focus-visible:ring-offset-2 ${
+          checked
+            ? 'border-[hsl(var(--primary))] bg-[hsl(var(--primary))]'
+            : 'border-[hsl(var(--border))] bg-white'
+        } ${
+          disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+        }`}
+      >
+        <span
+          className={`absolute h-5 w-5 rounded-full shadow-sm transition-transform duration-200 ease-out ${
+            checked
+              ? 'translate-x-5 bg-white'
+              : 'translate-x-0.5 bg-[hsl(var(--muted-foreground)/0.35)]'
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 export default function SettingsClient() {
-  const { session, updateSession } = useDemoSession();
+  const { authMode, session, updateSession, changePassword } = useDemoSession();
   const { currentDorm, hasModule, setModuleEnabled, updateDorm } = useDemoWorkspace();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [name, setName] = useState('');
@@ -20,9 +73,9 @@ export default function SettingsClient() {
   const [dormCity, setDormCity] = useState('');
   const [dormAddress, setDormAddress] = useState('');
   const [timezone, setTimezone] = useState('UTC+7 (Indochina Time)');
-  const [notifPrimary, setNotifPrimary] = useState(true);
-  const [notifSecondary, setNotifSecondary] = useState(true);
-  const [notifTertiary, setNotifTertiary] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   useEffect(() => {
     if (!session) return;
@@ -62,20 +115,17 @@ export default function SettingsClient() {
         {
           label: 'Invoice reminders',
           desc: 'Get notified when rent is issued, due, or overdue',
-          value: notifPrimary,
-          set: setNotifPrimary,
+          enabled: true,
         },
         {
           label: 'Maintenance updates',
           desc: 'Get notified when your maintenance requests are updated',
-          value: notifSecondary,
-          set: setNotifSecondary,
+          enabled: true,
         },
         {
           label: 'Dorm announcements',
           desc: 'Receive notices from the dorm management team',
-          value: notifTertiary,
-          set: setNotifTertiary,
+          enabled: false,
         },
       ];
     }
@@ -85,20 +135,17 @@ export default function SettingsClient() {
         {
           label: 'Meal plan changes',
           desc: 'Get notified when kitchen schedules or servings change',
-          value: notifPrimary,
-          set: setNotifPrimary,
+          enabled: true,
         },
         {
           label: 'Kitchen alerts',
           desc: 'Receive prep and operational alerts for the dorm kitchen',
-          value: notifSecondary,
-          set: setNotifSecondary,
+          enabled: true,
         },
         {
           label: 'Dorm announcements',
           desc: 'Receive general notices that affect service operations',
-          value: notifTertiary,
-          set: setNotifTertiary,
+          enabled: false,
         },
       ];
     }
@@ -107,62 +154,130 @@ export default function SettingsClient() {
       {
         label: 'Payment received',
         desc: 'Get notified when a tenant makes a payment',
-        value: notifPrimary,
-        set: setNotifPrimary,
+        enabled: true,
       },
       {
         label: 'Maintenance requests',
         desc: 'Get notified on new or updated maintenance tickets',
-        value: notifSecondary,
-        set: setNotifSecondary,
+        enabled: true,
       },
       {
         label: 'Invoice reminders',
         desc: 'Get notified when invoices are due or overdue',
-        value: notifTertiary,
-        set: setNotifTertiary,
+        enabled: false,
       },
     ];
-  }, [notifPrimary, notifSecondary, notifTertiary, session?.role]);
+  }, [session?.role]);
 
   const dormModules = useMemo(() => ([
     {
       key: 'mealService' as const,
       label: 'Meal Service',
-      desc: 'Enables chef operations and tenant meal-plan controls.',
+      desc: 'Turns chef operations and tenant meal-plan actions on or off while preserving meal history.',
     },
     {
       key: 'notifications' as const,
       label: 'Notifications',
-      desc: 'Keeps role-specific notifications available throughout the app.',
+      desc: 'Keeps historical alerts visible, but turning this off pauses new in-app notifications for the dorm.',
     },
     {
       key: 'analytics' as const,
       label: 'Reports & Analytics',
-      desc: 'Shows admin reporting dashboards and portfolio insights.',
+      desc: 'Controls reporting visibility only. Historical analytics data remains intact.',
     },
     {
       key: 'multiDorm' as const,
       label: 'Multi-Dorm Portfolio',
-      desc: 'Unlocks cross-property management and portfolio-level metrics.',
+      desc: 'Controls cross-dorm management actions without changing the dorm’s stored history.',
     },
   ]), []);
+
+  const isPasswordChangeAvailable = authMode === 'demo';
+  const isNotificationsPreferencesAvailable = false;
 
   if (!session) {
     return null;
   }
 
   function handleSave() {
-    updateSession({ name, email });
-    if (isAdmin && currentDorm) {
-      updateDorm(currentDorm.id, {
-        name: dormName,
-        city: dormCity,
-        address: dormAddress,
-        timezone,
-      });
+    try {
+      if (activeTab === 'profile') {
+        const trimmedName = name.trim();
+        const normalizedEmail = email.trim().toLowerCase();
+
+        if (!trimmedName) {
+          throw new Error('Full name is required.');
+        }
+
+        if (!normalizedEmail || !normalizedEmail.includes('@')) {
+          throw new Error('Enter a valid email address.');
+        }
+
+        updateSession({ name: trimmedName, email: normalizedEmail });
+        toast.success('Profile updated successfully');
+        return;
+      }
+
+      if (activeTab === 'security') {
+        if (!isPasswordChangeAvailable) {
+          throw new Error('Password changes are not available in this auth mode yet.');
+        }
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+          throw new Error('Complete all password fields before saving.');
+        }
+
+        if (newPassword.length < 8) {
+          throw new Error('New password must be at least 8 characters long.');
+        }
+
+        if (newPassword !== confirmPassword) {
+          throw new Error('New password and confirmation do not match.');
+        }
+
+        changePassword(currentPassword, newPassword);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        toast.success('Password updated for this demo account');
+        return;
+      }
+
+      if (activeTab === 'dorm') {
+        if (!isAdmin || !currentDorm) {
+          throw new Error('Dorm settings are only available to owners.');
+        }
+
+        const trimmedDormName = dormName.trim();
+        const trimmedDormCity = dormCity.trim();
+        const trimmedDormAddress = dormAddress.trim();
+
+        if (!trimmedDormName) {
+          throw new Error('Dormitory name is required.');
+        }
+
+        if (!trimmedDormCity) {
+          throw new Error('City is required.');
+        }
+
+        if (!trimmedDormAddress) {
+          throw new Error('Address is required.');
+        }
+
+        updateDorm(currentDorm.id, {
+          name: trimmedDormName,
+          city: trimmedDormCity,
+          address: trimmedDormAddress,
+          timezone,
+        });
+        toast.success('Dorm settings saved successfully');
+        return;
+      }
+
+      toast.info('Notification delivery preferences are not configurable yet.');
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
-    toast.success('Settings saved successfully');
   }
 
   const initials = name
@@ -171,6 +286,16 @@ export default function SettingsClient() {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || session.initials;
+  const actionLabel = activeTab === 'profile'
+    ? 'Save Profile'
+    : activeTab === 'security'
+      ? (isPasswordChangeAvailable ? 'Change Password' : 'Password Change Unavailable')
+      : activeTab === 'notifications'
+        ? 'Preferences Unavailable'
+        : 'Save Dorm Settings';
+  const isActionDisabled =
+    activeTab === 'notifications'
+    || (activeTab === 'security' && !isPasswordChangeAvailable);
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6">
@@ -246,17 +371,50 @@ export default function SettingsClient() {
           <>
             <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Security</h2>
             <div className="space-y-4">
+              <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.35)] p-4">
+                <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">
+                  {isPasswordChangeAvailable
+                    ? 'Demo mode password changes update the local demo auth account for this workspace.'
+                    : 'Password changes are not wired for the current auth mode yet.'}
+                </p>
+                <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">
+                  {isPasswordChangeAvailable
+                    ? 'Use the current password for this session, then set a new password with at least 8 characters.'
+                    : 'The fields below are disabled until the auth backend supports credential updates.'}
+                </p>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Current Password</label>
-                <input type="password" placeholder="Enter current password" className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]" />
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  disabled={!isPasswordChangeAvailable}
+                  placeholder="Enter current password"
+                  className={`w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] ${isPasswordChangeAvailable ? 'bg-white' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed'}`}
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">New Password</label>
-                <input type="password" placeholder="Enter new password" className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]" />
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  disabled={!isPasswordChangeAvailable}
+                  placeholder="Enter new password"
+                  className={`w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] ${isPasswordChangeAvailable ? 'bg-white' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed'}`}
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Confirm New Password</label>
-                <input type="password" placeholder="Confirm new password" className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]" />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  disabled={!isPasswordChangeAvailable}
+                  placeholder="Confirm new password"
+                  className={`w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] ${isPasswordChangeAvailable ? 'bg-white' : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed'}`}
+                />
               </div>
             </div>
           </>
@@ -266,18 +424,25 @@ export default function SettingsClient() {
           <>
             <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Notification Preferences</h2>
             <div className="space-y-4">
+              <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.35)] p-4">
+                <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">
+                  Preference editing is not wired yet.
+                </p>
+                <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">
+                  Role-scoped dorm notifications still appear automatically when invoices, maintenance, invitations, room assignments, and meal-service events are created.
+                </p>
+              </div>
               {notificationOptions.map((option) => (
                 <div key={option.label} className="flex items-start justify-between gap-4 p-4 rounded-lg border border-[hsl(var(--border))]">
                   <div>
                     <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">{option.label}</p>
                     <p className="text-[12px] text-[hsl(var(--muted-foreground))] mt-0.5">{option.desc}</p>
                   </div>
-                  <button
-                    onClick={() => option.set(!option.value)}
-                    className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${option.value ? 'bg-[hsl(var(--primary))]' : 'bg-[hsl(var(--muted-foreground)/0.3)]'}`}
-                  >
-                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${option.value ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                  </button>
+                  <ToggleSwitch
+                    checked={option.enabled}
+                    disabled={!isNotificationsPreferencesAvailable}
+                    label={option.label}
+                  />
                 </div>
               ))}
             </div>
@@ -347,14 +512,11 @@ export default function SettingsClient() {
                           <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">{module.label}</p>
                           <p className="mt-0.5 text-[12px] text-[hsl(var(--muted-foreground))]">{module.desc}</p>
                         </div>
-                        <button
-                          type="button"
+                        <ToggleSwitch
+                          checked={enabled}
                           onClick={() => setModuleEnabled(module.key, !enabled)}
-                          className={`relative mt-1 h-5 w-10 rounded-full transition-colors ${enabled ? 'bg-[hsl(var(--primary))]' : 'bg-[hsl(var(--muted-foreground)/0.3)]'}`}
-                          aria-label={`Toggle ${module.label}`}
-                        >
-                          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                        </button>
+                          label={`Toggle ${module.label}`}
+                        />
                       </div>
                     );
                   })}
@@ -371,10 +533,11 @@ export default function SettingsClient() {
 
         <button
           onClick={handleSave}
-          className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors"
+          disabled={isActionDisabled}
+          className={`flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium rounded-lg transition-colors ${isActionDisabled ? 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] cursor-not-allowed' : 'text-white bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.9)]'}`}
         >
           <Save size={15} />
-          Save Changes
+          {actionLabel}
         </button>
       </div>
     </div>

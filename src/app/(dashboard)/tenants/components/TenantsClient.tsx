@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { BedDouble, Mail, Phone, Plus, Search, UserCheck, UserX, Users, ChefHat } from 'lucide-react';
 import { toast } from 'sonner';
-import { useDemoSession } from '@/components/DemoSessionProvider';
 import AppSelect from '@/components/ui/AppSelect';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import { getTenantOperationalState } from '@/lib/demoWorkspace';
 
 type ViewMode = 'residents' | 'kitchen';
 
@@ -17,21 +17,23 @@ const chefShiftOptions = [
 ];
 
 export default function TenantsClient() {
-  const { createInvitation } = useDemoSession();
   const {
-    addChef,
-    addTenant,
+    canReInviteChef,
+    createChefWithInvitation,
+    createResidentWithInvitation,
     currentDorm,
     currentDormChefs,
     currentDormRooms,
     currentDormTenants,
     hasModule,
+    reassignTenantRoom,
+    reInviteChef,
     updateChefStatus,
     updateTenantStatus,
   } = useDemoWorkspace();
   const [activeView, setActiveView] = useState<ViewMode>('residents');
   const [search, setSearch] = useState('');
-  const [residentStatusFilter, setResidentStatusFilter] = useState<'All' | 'Active' | 'Inactive'>('All');
+  const [residentStatusFilter, setResidentStatusFilter] = useState<'All' | 'Active' | 'Inactive' | 'Pending Invite'>('All');
   const [chefStatusFilter, setChefStatusFilter] = useState<'All' | 'Active' | 'Invited' | 'Inactive'>('All');
   const [showResidentForm, setShowResidentForm] = useState(false);
   const [showChefForm, setShowChefForm] = useState(false);
@@ -43,6 +45,8 @@ export default function TenantsClient() {
   const [chefEmail, setChefEmail] = useState('');
   const [chefShift, setChefShift] = useState<'Morning' | 'Evening' | 'Split'>('Morning');
   const [chefSpecialty, setChefSpecialty] = useState('');
+  const [movingResidentId, setMovingResidentId] = useState<string | null>(null);
+  const [nextResidentRoomId, setNextResidentRoomId] = useState('');
 
   const mealServiceEnabled = hasModule('mealService');
 
@@ -54,7 +58,19 @@ export default function TenantsClient() {
         tenant.name.toLowerCase().includes(query) ||
         tenant.email.toLowerCase().includes(query) ||
         tenant.phone.toLowerCase().includes(query);
-      const matchesStatus = residentStatusFilter === 'All' || tenant.status === residentStatusFilter;
+      const matchesStatus =
+        residentStatusFilter === 'All'
+        || (residentStatusFilter === 'Pending Invite' && tenant.invitationLifecycleState === 'pending')
+        || (
+          residentStatusFilter === 'Active'
+          && tenant.invitationLifecycleState !== 'pending'
+          && tenant.status === 'Active'
+        )
+        || (
+          residentStatusFilter === 'Inactive'
+          && tenant.invitationLifecycleState !== 'pending'
+          && tenant.status === 'Inactive'
+        );
       return matchesSearch && matchesStatus;
     });
   }, [currentDormTenants, residentStatusFilter, search]);
@@ -75,7 +91,11 @@ export default function TenantsClient() {
   const residentCounts = useMemo(() => ({
     total: currentDormTenants.length,
     active: currentDormTenants.filter((tenant) => tenant.status === 'Active').length,
-    inactive: currentDormTenants.filter((tenant) => tenant.status === 'Inactive').length,
+    awaitingRoom: currentDormTenants.filter(
+      (tenant) => tenant.status === 'Active' && tenant.roomId === 'unassigned',
+    ).length,
+    inactive: currentDormTenants.filter((tenant) => tenant.status === 'Inactive' && tenant.invitationLifecycleState !== 'pending').length,
+    pending: currentDormTenants.filter((tenant) => tenant.invitationLifecycleState === 'pending').length,
   }), [currentDormTenants]);
 
   const chefCounts = useMemo(() => ({
@@ -89,19 +109,102 @@ export default function TenantsClient() {
       { value: 'unassigned', label: 'Assignment pending' },
       ...currentDormRooms.map((room) => ({
         value: room.id,
-        label: `Room ${room.roomNumber} · ${room.occupants}/${room.capacity}`,
+        label: `Room ${room.roomNumber} · ${room.occupants}/${room.capacity} committed`,
       })),
     ],
     [currentDormRooms],
   );
 
+  const residentReassignmentOptions = useMemo(
+    () =>
+      new Map(
+        currentDormTenants.map((tenant) => [
+          tenant.id,
+          tenant.status !== 'Active' && tenant.invitationLifecycleState !== 'pending'
+            ? []
+            : currentDormRooms
+                .filter(
+                  (room) =>
+                    room.id !== tenant.roomId &&
+                    room.status !== 'Reserved' &&
+                    room.status !== 'Under Maintenance' &&
+                    room.occupants < room.capacity,
+                )
+                .map((room) => ({
+                  value: room.id,
+                  label: `Room ${room.roomNumber} · ${room.occupants}/${room.capacity} · ${room.status}`,
+                })),
+        ]),
+      ),
+    [currentDormRooms, currentDormTenants],
+  );
+
+  useEffect(() => {
+    if (!movingResidentId) {
+      return;
+    }
+
+    const residentStillVisible = currentDormTenants.some((tenant) => tenant.id === movingResidentId);
+    if (!residentStillVisible) {
+      setMovingResidentId(null);
+      setNextResidentRoomId('');
+      return;
+    }
+
+    const nextOptions = residentReassignmentOptions.get(movingResidentId) ?? [];
+    if (nextOptions.length === 0) {
+      if (nextResidentRoomId !== '') {
+        setNextResidentRoomId('');
+      }
+      return;
+    }
+
+    if (!nextOptions.some((option) => option.value === nextResidentRoomId)) {
+      setNextResidentRoomId(nextOptions[0].value);
+    }
+  }, [currentDormTenants, movingResidentId, nextResidentRoomId, residentReassignmentOptions]);
+
   function getRoomLabel(roomId: string) {
     if (!roomId || roomId === 'unassigned') {
-      return 'Assignment pending';
+      return 'Awaiting room assignment';
     }
 
     const room = currentDormRooms.find((item) => item.id === roomId);
-    return room ? `Room ${room.roomNumber}` : 'Assignment pending';
+    return room ? `Room ${room.roomNumber}` : 'Awaiting room assignment';
+  }
+
+  function getResidentStatusMeta(tenant: (typeof currentDormTenants)[number]) {
+    const operationalState = getTenantOperationalState(tenant);
+
+    if (operationalState === 'Pending Invite') {
+      return {
+        label: 'Invitation Pending',
+        badge: 'bg-blue-100 text-blue-700',
+        icon: Users,
+      };
+    }
+
+    if (operationalState === 'Awaiting Room Assignment') {
+      return {
+        label: 'Awaiting Reassignment',
+        badge: 'bg-amber-100 text-amber-700',
+        icon: BedDouble,
+      };
+    }
+
+    if (operationalState === 'Active') {
+      return {
+        label: 'Active',
+        badge: 'bg-green-100 text-green-700',
+        icon: UserCheck,
+      };
+    }
+
+    return {
+      label: 'Inactive',
+      badge: 'bg-slate-100 text-slate-700',
+      icon: UserX,
+    };
   }
 
   function handleAddResident(event: React.FormEvent) {
@@ -110,30 +213,24 @@ export default function TenantsClient() {
       return;
     }
 
-    const nextTenant = addTenant({
-      name: residentName.trim(),
-      email: residentEmail.trim(),
-      phone: residentPhone.trim(),
-      roomId: residentRoomId,
-    });
-
-    setResidentName('');
-    setResidentEmail('');
-    setResidentPhone('');
-    setResidentRoomId('unassigned');
-    setShowResidentForm(false);
-
     try {
-      const invitation = createInvitation({
-        email: nextTenant.email,
-        role: 'Tenant',
-        targetRecordId: nextTenant.id,
+      const result = createResidentWithInvitation({
+        name: residentName.trim(),
+        email: residentEmail.trim(),
+        phone: residentPhone.trim(),
+        roomId: residentRoomId,
       });
-      toast.success(`${nextTenant.name} added to the resident pipeline`);
-      toast.info(`Demo invite code: ${invitation.code}`);
+
+      setResidentName('');
+      setResidentEmail('');
+      setResidentPhone('');
+      setResidentRoomId('unassigned');
+      setShowResidentForm(false);
+
+      toast.success(`${result.resident.name} added to the resident pipeline`);
+      toast.info(`Demo invite code: ${result.invitationCode}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to create the invitation.';
-      toast.success(`${nextTenant.name} added to the resident pipeline`);
+      const message = error instanceof Error ? error.message : 'Unable to onboard the resident.';
       toast.error(message);
     }
   }
@@ -144,43 +241,97 @@ export default function TenantsClient() {
       return;
     }
 
-    const nextChef = addChef({
-      name: chefName.trim(),
-      email: chefEmail.trim(),
-      specialty: chefSpecialty.trim(),
-      shift: chefShift,
-    });
-
-    setChefName('');
-    setChefEmail('');
-    setChefSpecialty('');
-    setChefShift('Morning');
-    setShowChefForm(false);
-
     try {
-      const invitation = createInvitation({
-        email: nextChef.email,
-        role: 'Chef',
-        targetRecordId: nextChef.id,
+      const result = createChefWithInvitation({
+        name: chefName.trim(),
+        email: chefEmail.trim(),
+        specialty: chefSpecialty.trim(),
+        shift: chefShift,
       });
-      toast.success(`${nextChef.name} invited to the kitchen team`);
-      toast.info(`Demo invite code: ${invitation.code}`);
+
+      setChefName('');
+      setChefEmail('');
+      setChefSpecialty('');
+      setChefShift('Morning');
+      setShowChefForm(false);
+
+      toast.success(`${result.chef.name} invited to the kitchen team`);
+      toast.info(`Demo invite code: ${result.invitationCode}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to create the invitation.';
-      toast.success(`${nextChef.name} invited to the kitchen team`);
+      const message = error instanceof Error ? error.message : 'Unable to invite the chef.';
       toast.error(message);
     }
   }
 
   function handleResidentStatusToggle(tenantId: string, currentStatus: 'Active' | 'Inactive') {
     const nextStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
-    updateTenantStatus(tenantId, nextStatus);
-    toast.success(`Resident marked ${nextStatus.toLowerCase()}`);
+
+    try {
+      updateTenantStatus(tenantId, nextStatus);
+      toast.success(`Resident marked ${nextStatus.toLowerCase()}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the resident status.';
+      toast.error(message);
+    }
   }
 
-  function handleChefStatusChange(chefId: string, nextStatus: 'Active' | 'Invited' | 'Inactive') {
-    updateChefStatus(chefId, nextStatus);
-    toast.success(`Kitchen staff status changed to ${nextStatus.toLowerCase()}`);
+  function openResidentReassignment(tenant: (typeof currentDormTenants)[number]) {
+    if (movingResidentId === tenant.id) {
+      setMovingResidentId(null);
+      setNextResidentRoomId('');
+      return;
+    }
+
+    const options = residentReassignmentOptions.get(tenant.id) ?? [];
+    setMovingResidentId(tenant.id);
+    setNextResidentRoomId(options[0]?.value ?? '');
+  }
+
+  function closeResidentReassignment() {
+    setMovingResidentId(null);
+    setNextResidentRoomId('');
+  }
+
+  function handleResidentReassignment(tenant: (typeof currentDormTenants)[number]) {
+    if (!nextResidentRoomId) {
+      toast.error('No eligible target rooms are available right now.');
+      return;
+    }
+
+    try {
+      const targetRoom = currentDormRooms.find((room) => room.id === nextResidentRoomId);
+      reassignTenantRoom(tenant.id, nextResidentRoomId);
+      closeResidentReassignment();
+      toast.success(
+        targetRoom
+          ? `${tenant.name} moved to Room ${targetRoom.roomNumber}`
+          : 'Resident room assignment updated',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the room assignment.';
+      toast.error(message);
+    }
+  }
+
+  function handleChefStatusChange(chefId: string, nextStatus: 'Active' | 'Inactive') {
+    try {
+      updateChefStatus(chefId, nextStatus);
+      toast.success(`Kitchen staff status changed to ${nextStatus.toLowerCase()}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the kitchen staff status.';
+      toast.error(message);
+    }
+  }
+
+  function handleChefReInvite(chefId: string) {
+    try {
+      const result = reInviteChef(chefId);
+      toast.success(`${result.chef.name} re-invited to the kitchen team`);
+      toast.info(`Demo invite code: ${result.invitationCode}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to re-invite the chef.';
+      toast.error(message);
+    }
   }
 
   const activeViewCount = activeView === 'residents' ? filteredResidents.length : filteredChefs.length;
@@ -220,11 +371,16 @@ export default function TenantsClient() {
         <div className="rounded-xl bg-[hsl(var(--primary))] p-5 text-white">
           <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-white/75">Residents</p>
           <p className="mt-3 text-3xl font-semibold">{residentCounts.total}</p>
-          <p className="mt-1 text-[13px] text-white/75">{residentCounts.active} active residents</p>
+          <p className="mt-1 text-[13px] text-white/75">
+            {residentCounts.active} active residents
+            {residentCounts.awaitingRoom > 0 ? ` · ${residentCounts.awaitingRoom} awaiting rooms` : ''}
+          </p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
           <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-amber-700">Pending Resident Actions</p>
-          <p className="mt-3 text-3xl font-semibold text-amber-900">{residentCounts.inactive}</p>
+          <p className="mt-3 text-3xl font-semibold text-amber-900">
+            {residentCounts.pending + residentCounts.inactive + residentCounts.awaitingRoom}
+          </p>
           <p className="mt-1 text-[13px] text-amber-700">Waiting on activation or assignment follow-up</p>
         </div>
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
@@ -279,7 +435,7 @@ export default function TenantsClient() {
         </div>
         {activeView === 'residents' ? (
           <div className="flex gap-2">
-            {(['All', 'Active', 'Inactive'] as const).map((status) => (
+            {(['All', 'Active', 'Inactive', 'Pending Invite'] as const).map((status) => (
               <button
                 key={status}
                 type="button"
@@ -319,7 +475,7 @@ export default function TenantsClient() {
           <div>
             <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Add Resident</h2>
             <p className="mt-1 text-[13px] text-[hsl(var(--muted-foreground))]">
-              New residents start as inactive until their move-in, room assignment, and billing setup are confirmed.
+              New residents start as pending invite placeholders. If you assign a room now, that bed stays reserved until the invitation is accepted or reassigned.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-4">
@@ -471,57 +627,132 @@ export default function TenantsClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[hsl(var(--border))]">
-                {filteredResidents.map((tenant) => (
-                  <tr key={tenant.id} className="hover:bg-[hsl(var(--muted)/0.3)] transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[hsl(var(--primary)/0.12)] text-[12px] font-semibold text-[hsl(var(--primary))]">
-                          {tenant.avatar}
-                        </div>
-                        <div>
-                          <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">{tenant.name}</p>
-                          <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{tenant.id}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5 text-[12px] text-[hsl(var(--muted-foreground))]">
-                          <Mail size={11} />
-                          {tenant.email}
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[12px] text-[hsl(var(--muted-foreground))]">
-                          <Phone size={11} />
-                          {tenant.phone}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-[13px] text-[hsl(var(--foreground))]">
-                      <div className="flex items-center gap-1.5">
-                        <BedDouble size={14} className="text-[hsl(var(--muted-foreground))]" />
-                        {getRoomLabel(tenant.roomId)}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-[13px] text-[hsl(var(--muted-foreground))]">{tenant.moveInDate}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium ${
-                        tenant.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                      }`}>
-                        {tenant.status === 'Active' ? <UserCheck size={11} /> : <UserX size={11} />}
-                        {tenant.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleResidentStatusToggle(tenant.id, tenant.status)}
-                        className="text-[12px] font-medium text-[hsl(var(--primary))] hover:underline"
-                      >
-                        Mark as {tenant.status === 'Active' ? 'inactive' : 'active'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredResidents.map((tenant) => {
+                  const moveOptions = residentReassignmentOptions.get(tenant.id) ?? [];
+                  const isMovingResident = movingResidentId === tenant.id;
+                  const statusMeta = getResidentStatusMeta(tenant);
+                  const StatusIcon = statusMeta.icon;
+
+                  return (
+                    <React.Fragment key={tenant.id}>
+                      <tr className="hover:bg-[hsl(var(--muted)/0.3)] transition-colors">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[hsl(var(--primary)/0.12)] text-[12px] font-semibold text-[hsl(var(--primary))]">
+                              {tenant.avatar}
+                            </div>
+                            <div>
+                              <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">{tenant.name}</p>
+                              <p className="text-[12px] text-[hsl(var(--muted-foreground))]">{tenant.id}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 text-[12px] text-[hsl(var(--muted-foreground))]">
+                              <Mail size={11} />
+                              {tenant.email}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[12px] text-[hsl(var(--muted-foreground))]">
+                              <Phone size={11} />
+                              {tenant.phone}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-[13px] text-[hsl(var(--foreground))]">
+                          <div className="flex items-center gap-1.5">
+                            <BedDouble size={14} className="text-[hsl(var(--muted-foreground))]" />
+                            {getRoomLabel(tenant.roomId)}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-[13px] text-[hsl(var(--muted-foreground))]">{tenant.moveInDate}</td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium ${statusMeta.badge}`}>
+                            <StatusIcon size={11} />
+                            {statusMeta.label}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex justify-end gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openResidentReassignment(tenant)}
+                              disabled={moveOptions.length === 0}
+                              className={`text-[12px] font-medium ${
+                                moveOptions.length === 0
+                                  ? 'cursor-not-allowed text-[hsl(var(--muted-foreground))] opacity-60'
+                                  : 'text-[hsl(var(--primary))] hover:underline'
+                              }`}
+                            >
+                              {tenant.roomId === 'unassigned' ? 'Assign room' : 'Move room'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleResidentStatusToggle(tenant.id, tenant.status)}
+                              disabled={tenant.invitationLifecycleState === 'pending'}
+                              className="text-[12px] font-medium text-[hsl(var(--primary))] hover:underline"
+                            >
+                              {tenant.invitationLifecycleState === 'pending'
+                                ? 'Awaiting acceptance'
+                                : `Mark as ${tenant.status === 'Active' ? 'inactive' : 'active'}`}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {isMovingResident && (
+                        <tr className="bg-[hsl(var(--muted)/0.18)]">
+                          <td colSpan={6} className="px-5 py-4">
+                            <div className="rounded-xl border border-[hsl(var(--border))] bg-white p-4">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                                <div>
+                                  <p className="text-[14px] font-semibold text-[hsl(var(--foreground))]">
+                                    {tenant.roomId === 'unassigned' ? 'Assign resident to a room' : `Move ${tenant.name}`}
+                                  </p>
+                                  <p className="mt-1 text-[13px] text-[hsl(var(--muted-foreground))]">
+                                    Current assignment: {getRoomLabel(tenant.roomId)}. Select a target room with available capacity.
+                                  </p>
+                                </div>
+                                <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                                  <div className="min-w-[260px]">
+                                    <AppSelect
+                                      ariaLabel={`Room reassignment for ${tenant.name}`}
+                                      fullWidth
+                                      disabled={moveOptions.length === 0}
+                                      value={nextResidentRoomId}
+                                      options={
+                                        moveOptions.length > 0
+                                          ? moveOptions
+                                          : [{ value: '', label: 'No eligible rooms available' }]
+                                      }
+                                      onChange={setNextResidentRoomId}
+                                    />
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleResidentReassignment(tenant)}
+                                      disabled={!nextResidentRoomId}
+                                      className="rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      Save move
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={closeResidentReassignment}
+                                      className="rounded-lg border border-[hsl(var(--border))] bg-white px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -563,18 +794,25 @@ export default function TenantsClient() {
                     <td className="px-5 py-4 text-[13px] text-[hsl(var(--muted-foreground))]">{chef.specialty}</td>
                     <td className="px-5 py-4">
                       <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${
-                        chef.status === 'Active'
+                        chef.invitationLifecycleState === 'pending'
+                          ? 'bg-blue-100 text-blue-700'
+                          : chef.status === 'Active'
                           ? 'bg-green-100 text-green-700'
                           : chef.status === 'Invited'
                             ? 'bg-blue-100 text-blue-700'
                             : 'bg-slate-100 text-slate-600'
                       }`}>
-                        {chef.status}
+                        {chef.invitationLifecycleState === 'pending' ? 'Invitation Pending' : chef.status}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex justify-end gap-2">
-                        {chef.status !== 'Active' && (
+                        {chef.invitationLifecycleState === 'pending' ? (
+                          <span className="text-[12px] font-medium text-[hsl(var(--muted-foreground))]">
+                            Awaiting acceptance
+                          </span>
+                        ) : null}
+                        {chef.invitationLifecycleState !== 'pending' && chef.status !== 'Active' && (
                           <button
                             type="button"
                             onClick={() => handleChefStatusChange(chef.id, 'Active')}
@@ -583,16 +821,16 @@ export default function TenantsClient() {
                             Activate
                           </button>
                         )}
-                        {chef.status !== 'Invited' && (
+                        {chef.invitationLifecycleState !== 'pending' && canReInviteChef(chef.id) && (
                           <button
                             type="button"
-                            onClick={() => handleChefStatusChange(chef.id, 'Invited')}
+                            onClick={() => handleChefReInvite(chef.id)}
                             className="text-[12px] font-medium text-[hsl(var(--primary))] hover:underline"
                           >
                             Re-invite
                           </button>
                         )}
-                        {chef.status !== 'Inactive' && (
+                        {chef.invitationLifecycleState !== 'pending' && chef.status !== 'Inactive' && (
                           <button
                             type="button"
                             onClick={() => handleChefStatusChange(chef.id, 'Inactive')}

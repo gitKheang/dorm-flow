@@ -1,10 +1,16 @@
 'use client';
 import React from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
-import { paymentCollectionData } from '@/lib/mockData';
+import type { PaymentTrendPoint } from '@/lib/domain/paymentAnalytics';
 
 interface TooltipPayload {
   name: string;
@@ -34,15 +40,15 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   );
 }
 
-export default function PaymentChart() {
+export default function PaymentChart({ data }: { data: PaymentTrendPoint[] }) {
   return (
     <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
       <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Payment Collection</h2>
-        <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">Monthly breakdown by status</p>
+        <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Payment Activity</h2>
+        <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">Monthly payment attempts by status</p>
       </div>
       <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={paymentCollectionData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={10}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={10}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(214 20% 88%)" vertical={false} />
           <XAxis
             dataKey="month"
@@ -54,7 +60,7 @@ export default function PaymentChart() {
             tick={{ fontSize: 11, fill: 'hsl(215 16% 46%)' }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+            tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
           />
           <Tooltip content={<CustomTooltip />} />
           <Legend
@@ -63,8 +69,8 @@ export default function PaymentChart() {
             iconSize={8}
           />
           <Bar dataKey="paid" name="Paid" fill="#22c55e" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="issued" name="Issued" fill="#0f4c81" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="overdue" name="Overdue" fill="#ef4444" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="pending" name="Pending" fill="#0f4c81" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="failed" name="Failed" fill="#ef4444" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

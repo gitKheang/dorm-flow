@@ -69,28 +69,43 @@ export default function ChefDashboardPage() {
   const categoryOptions = CATEGORIES.map((category) => ({ value: category, label: category }));
 
   function handleStatusChange(id: string, status: MealItemRecord['status']) {
-    updateMealStatus(id, status);
-    toast.success('Meal status updated');
+    try {
+      updateMealStatus(id, status);
+      toast.success('Meal status updated');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update the meal status.';
+      toast.error(message);
+    }
   }
 
   function handleDeleteMeal(id: string) {
-    deleteMeal(id);
-    toast.success('Meal removed from plan');
+    try {
+      deleteMeal(id);
+      toast.success('Meal removed from plan');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove the meal.';
+      toast.error(message);
+    }
   }
 
   function handleAddMeal(e: React.FormEvent) {
     e.preventDefault();
     if (!newMealName.trim()) return;
-    addMeal({
-      name: newMealName.trim(),
-      category: newMealCategory,
-      day: selectedDay,
-      servings: newMealServings,
-      calories: newMealCalories,
-    });
-    setNewMealName('');
-    setShowAddForm(false);
-    toast.success(`${newMealName} added to ${selectedDay}'s plan`);
+    try {
+      addMeal({
+        name: newMealName.trim(),
+        category: newMealCategory,
+        day: selectedDay,
+        servings: newMealServings,
+        calories: newMealCalories,
+      });
+      setNewMealName('');
+      setShowAddForm(false);
+      toast.success(`${newMealName} added to ${selectedDay}'s plan`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to add the meal.';
+      toast.error(message);
+    }
   }
 
   if (!mealServiceEnabled) {

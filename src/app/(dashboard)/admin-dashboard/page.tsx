@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import { buildDormAnalyticsSnapshot } from '@/lib/domain/workspaceAnalytics';
 import DashboardKPIs from './components/DashboardKPIs';
 import OccupancyChart from './components/OccupancyChart';
 import PaymentChart from './components/PaymentChart';
@@ -14,8 +15,42 @@ export default function AdminDashboardPage() {
     currentDormActivityFeed,
     currentDormInvoices,
     currentDormMaintenanceTickets,
+    currentDormMeals,
+    currentDormPayments,
     currentDormRooms,
+    currentDormTenants,
+    hasModule,
+    workspace,
   } = useDemoWorkspace();
+  const currentDormMealPreferences = useMemo(() => {
+    const tenantIds = new Set(currentDormTenants.map((tenant) => tenant.id));
+    return workspace.tenantMealPreferences.filter((preference) =>
+      tenantIds.has(preference.tenantId),
+    );
+  }, [currentDormTenants, workspace.tenantMealPreferences]);
+  const analytics = useMemo(
+    () =>
+      buildDormAnalyticsSnapshot({
+        rooms: currentDormRooms,
+        tenants: currentDormTenants,
+        invoices: currentDormInvoices,
+        payments: currentDormPayments,
+        maintenanceTickets: currentDormMaintenanceTickets,
+        mealItems: currentDormMeals,
+        mealPreferences: currentDormMealPreferences,
+        mealServiceEnabled: hasModule('mealService'),
+      }),
+    [
+      currentDormInvoices,
+      currentDormMaintenanceTickets,
+      currentDormMealPreferences,
+      currentDormMeals,
+      currentDormPayments,
+      currentDormRooms,
+      currentDormTenants,
+      hasModule,
+    ],
+  );
 
   return (
     <div className="space-y-8">
@@ -24,7 +59,7 @@ export default function AdminDashboardPage() {
           <div>
             <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Dashboard</h1>
             <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              {currentDorm?.name ?? 'Active Dorm'} — March 31, 2026
+              {currentDorm?.name ?? 'Active Dorm'} — {analytics.labels.longDate}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -36,19 +71,19 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* KPI Bento Grid */}
-        <DashboardKPIs
-          invoices={currentDormInvoices}
-          maintenanceTickets={currentDormMaintenanceTickets}
-          rooms={currentDormRooms}
-        />
+        <DashboardKPIs analytics={analytics} />
 
         {/* Charts row */}
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
           <div className="xl:col-span-3">
-            <OccupancyChart />
+            <OccupancyChart
+              data={analytics.occupancy.trendData}
+              rangeLabel={analytics.occupancy.rangeLabel}
+              totalRooms={analytics.occupancy.totalRooms}
+            />
           </div>
           <div className="xl:col-span-2">
-            <PaymentChart />
+            <PaymentChart data={analytics.payments.trendData} />
           </div>
         </div>
 
