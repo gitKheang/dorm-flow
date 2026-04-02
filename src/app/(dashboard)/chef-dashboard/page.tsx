@@ -1,8 +1,8 @@
 'use client';
 import React, { useState } from 'react';
-import Link from 'next/link';
 import { ChefHat, UtensilsCrossed, Users, Clock, CheckCircle2, AlertTriangle, Plus, Trash2, CalendarDays, Flame } from 'lucide-react';
 import { toast } from 'sonner';
+import FeatureGateNotice from '@/components/premium/FeatureGateNotice';
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AppSelect from '@/components/ui/AppSelect';
@@ -33,9 +33,11 @@ export default function ChefDashboardPage() {
   const { session } = useDemoSession();
   const {
     addMeal,
+    currentDorm,
     currentDormMeals,
     currentDormTenants,
     deleteMeal,
+    getPremiumFeatureAccess,
     hasModule,
     updateMealStatus,
     workspace,
@@ -50,6 +52,9 @@ export default function ChefDashboardPage() {
   const meals = currentDormMeals;
   const todayMeals = meals.filter(m => m.day === selectedDay);
   const mealServiceEnabled = hasModule('mealService');
+  const chefDashboardAccess = currentDorm
+    ? getPremiumFeatureAccess('chefDashboard', currentDorm.id)
+    : null;
   const totalServings = meals.reduce((s, m) => s + m.servings, 0);
   const mealsServed = meals.filter(m => m.status === 'Served').length;
   const inPrep = meals.filter(m => m.status === 'In Prep').length;
@@ -109,6 +114,7 @@ export default function ChefDashboardPage() {
   }
 
   if (!mealServiceEnabled) {
+    const reason = chefDashboardAccess?.reason;
     return (
       <div className="space-y-6">
         <div>
@@ -117,18 +123,23 @@ export default function ChefDashboardPage() {
             Chef Portal — {session?.dormName ?? 'Sunrise Dormitory'}
           </p>
         </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-          <h2 className="text-[16px] font-semibold text-amber-900">Meal service is currently disabled</h2>
-          <p className="mt-2 text-[13px] text-amber-800">
-            The dorm owner has paused meal service, so kitchen operations are hidden until that module is turned back on.
-          </p>
-          <Link
-            href="/settings"
-            className="mt-4 inline-flex rounded-lg bg-white px-4 py-2.5 text-[13px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
-          >
-            Open Settings
-          </Link>
-        </div>
+        <FeatureGateNotice
+          eyebrow={reason === 'plan' ? 'Owner subscription required' : 'Module paused'}
+          title={
+            reason === 'plan'
+              ? 'Kitchen access depends on the dorm owner subscription'
+              : 'Meal service is currently paused for this dorm'
+          }
+          description={
+            reason === 'plan'
+              ? 'Chefs never pay for DormFlow. This dashboard unlocks when the dorm owner upgrades the workspace to Premium and turns meal service on for the dorm.'
+              : 'The dorm owner has kept this dorm on Premium, but meal service is currently switched off in settings. Your meal plans and service history stay preserved until the module is re-enabled.'
+          }
+          ctaLabel="Open settings"
+          ctaHref="/settings"
+          secondaryLabel="View notifications"
+          secondaryHref="/notifications"
+        />
       </div>
     );
   }

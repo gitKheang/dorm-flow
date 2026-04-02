@@ -27,23 +27,42 @@ const DormFlowMark = memo(function DormFlowMark({
       aria-hidden="true"
       className={className}
     >
+      {/* Badge */}
       <rect x="6" y="8" width="52" height="52" rx="16" fill={badgeFill} />
+
+      {/* Main building — tall dorm block */}
+      <rect x="22" y="18" width="20" height="32" rx="2" fill={buildingFill} />
+
+      {/* Side wing — lower annexe for depth */}
+      <rect x="14" y="28" width="12" height="22" rx="2" fill={buildingFill} />
+
+      {/* Window grid — main block (3 rows x 3 cols) */}
+      <rect x="25" y="22" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="30" y="22" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="35" y="22" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="25" y="29" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="30" y="29" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="35" y="29" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="25" y="36" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="30" y="36" width="4" height="4" rx="1" fill={detailFill} />
+      <rect x="35" y="36" width="4" height="4" rx="1" fill={detailFill} />
+
+      {/* Door — main entrance */}
+      <rect x="30" y="43" width="4" height="7" rx="1" fill={detailFill} />
+
+      {/* Window grid — side wing (2 rows x 2 cols) */}
+      <rect x="16" y="31" width="3.5" height="3.5" rx="0.75" fill={detailFill} />
+      <rect x="21" y="31" width="3.5" height="3.5" rx="0.75" fill={detailFill} />
+      <rect x="16" y="37" width="3.5" height="3.5" rx="0.75" fill={detailFill} />
+      <rect x="21" y="37" width="3.5" height="3.5" rx="0.75" fill={detailFill} />
+
+      {/* Flow accent — curved line suggesting movement / flow */}
       <path
-        d="M18 31L32 19L46 31V48C46 49.1046 45.1046 50 44 50H20C18.8954 50 18 49.1046 18 48V31Z"
-        fill={buildingFill}
-      />
-      <path
-        d="M16 31L32 17L48 31"
+        d="M44 44C46 38 48 30 46 22"
         stroke={accentStroke}
-        strokeWidth="3"
+        strokeWidth="2.5"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
-      <rect x="28.5" y="36" width="7" height="14" rx="2" fill={detailFill} />
-      <rect x="22" y="31.5" width="5" height="5" rx="1.25" fill={detailFill} />
-      <rect x="37" y="31.5" width="5" height="5" rx="1.25" fill={detailFill} />
-      <rect x="22" y="39.5" width="5" height="5" rx="1.25" fill={detailFill} />
-      <rect x="37" y="39.5" width="5" height="5" rx="1.25" fill={detailFill} />
     </svg>
   );
 });

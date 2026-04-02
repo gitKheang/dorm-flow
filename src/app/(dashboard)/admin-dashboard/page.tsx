@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import Link from 'next/link';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import PlanBadge from '@/components/premium/PlanBadge';
 import { buildDormAnalyticsSnapshot } from '@/lib/domain/workspaceAnalytics';
 import DashboardKPIs from './components/DashboardKPIs';
 import OccupancyChart from './components/OccupancyChart';
@@ -12,6 +14,7 @@ import MaintenanceList from './components/MaintenanceList';
 export default function AdminDashboardPage() {
   const {
     currentDorm,
+    currentDormPlan,
     currentDormActivityFeed,
     currentDormInvoices,
     currentDormMaintenanceTickets,
@@ -53,11 +56,14 @@ export default function AdminDashboardPage() {
   );
 
   return (
-    <div className="space-y-8">
+      <div className="space-y-8">
         {/* Page header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Dashboard</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Dashboard</h1>
+              <PlanBadge plan={currentDormPlan} />
+            </div>
             <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
               {currentDorm?.name ?? 'Active Dorm'} — {analytics.labels.longDate}
             </p>
@@ -69,6 +75,25 @@ export default function AdminDashboardPage() {
             </span>
           </div>
         </div>
+
+        {currentDormPlan === 'free' && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-[13px] font-semibold text-amber-900">Free plan active for this dorm</p>
+                <p className="mt-1 text-[12px] text-amber-800">
+                  Core dorm operations stay free. Upgrade this dorm when you need chef workflows, meal service, reports, or multi-dorm portfolio management.
+                </p>
+              </div>
+              <Link
+                href="/settings?tab=dorm"
+                className="inline-flex rounded-lg bg-white px-4 py-2.5 text-[13px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
+              >
+                Manage plan
+              </Link>
+            </div>
+          </div>
+        )}
 
         {/* KPI Bento Grid */}
         <DashboardKPIs analytics={analytics} />

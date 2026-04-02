@@ -2,7 +2,7 @@ import type { DemoSession } from '@/lib/demoSession';
 import type { Membership, MembershipRole } from '@/lib/auth/types';
 import type { DemoDorm, DemoWorkspaceState } from '@/lib/demoWorkspace';
 import type { EnabledModule } from '@/lib/modules';
-import { getDormEnabledModules } from '@/lib/demoWorkspace';
+import { getDormModuleAccess } from '@/lib/demoWorkspace';
 import { DomainError } from '@/lib/domain/errors';
 
 function assertAuthenticated(session: DemoSession | null): asserts session is DemoSession {
@@ -73,8 +73,15 @@ export function requireModuleEnabled(
     return;
   }
 
-  const enabledModules = getDormEnabledModules(workspace, dormId);
-  if (!enabledModules.includes(module)) {
+  const access = getDormModuleAccess(workspace, dormId, module);
+  if (!access.allowed) {
+    if (access.reason === 'plan') {
+      throw new DomainError(
+        'PREMIUM_UPGRADE_REQUIRED',
+        `${module} requires the dorm to be on the Premium plan.`,
+      );
+    }
+
     throw new DomainError('MODULE_DISABLED', `${module} is disabled for this dorm.`);
   }
 }

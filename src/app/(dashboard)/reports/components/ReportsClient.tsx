@@ -1,6 +1,9 @@
 'use client';
 import React, { useMemo } from 'react';
 import { BarChart3, TrendingUp, BedDouble, DollarSign, Wrench, UtensilsCrossed } from 'lucide-react';
+import { toast } from 'sonner';
+import FeatureGateNotice from '@/components/premium/FeatureGateNotice';
+import PlanBadge from '@/components/premium/PlanBadge';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import { buildDormAnalyticsSnapshot } from '@/lib/domain/workspaceAnalytics';
 import {
@@ -23,6 +26,7 @@ const ROOM_TYPE_COLORS = ['hsl(var(--primary))', '#60a5fa', '#34d399', '#f59e0b'
 
 export default function ReportsClient() {
   const {
+    currentDormPlan,
     currentDorm,
     currentDormInvoices,
     currentDormMaintenanceTickets,
@@ -30,9 +34,14 @@ export default function ReportsClient() {
     currentDormPayments,
     currentDormRooms,
     currentDormTenants,
+    getPremiumFeatureAccess,
+    upgradeDormToPremium,
     hasModule,
     workspace,
   } = useDemoWorkspace();
+  const reportsAccess = currentDorm
+    ? getPremiumFeatureAccess('reports', currentDorm.id)
+    : null;
   const currentDormMealPreferences = useMemo(() => {
     const tenantIds = new Set(currentDormTenants.map((tenant) => tenant.id));
     return workspace.tenantMealPreferences.filter((preference) =>
@@ -62,6 +71,54 @@ export default function ReportsClient() {
       hasModule,
     ],
   );
+
+  function handleUpgrade() {
+    if (!currentDorm) {
+      return;
+    }
+
+    try {
+      upgradeDormToPremium(currentDorm.id);
+      toast.success('Premium activated and reports unlocked for this dorm');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to upgrade the dorm.';
+      toast.error(message);
+    }
+  }
+
+  if (currentDorm && reportsAccess && !reportsAccess.allowed) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Reports & Analytics</h1>
+            <PlanBadge plan={currentDormPlan} />
+          </div>
+          <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
+            {currentDorm.name} — historical analytics stay preserved even when the page is locked.
+          </p>
+        </div>
+        <FeatureGateNotice
+          eyebrow={reportsAccess.reason === 'plan' ? 'Premium feature' : 'Module paused'}
+          title={
+            reportsAccess.reason === 'plan'
+              ? 'Upgrade this dorm to unlock reports and analytics'
+              : 'Reports are paused for this dorm'
+          }
+          description={
+            reportsAccess.reason === 'plan'
+              ? 'Reports and analytics are included with the dorm owner Premium plan. Tenants and chefs never pay separately, and your existing data remains intact until you upgrade.'
+              : 'This dorm is already on Premium, but the reports module is currently turned off in settings. Historical analytics stay available and will resume as soon as the module is enabled again.'
+          }
+          ctaLabel={reportsAccess.reason === 'plan' ? 'Upgrade to Premium' : 'Open settings'}
+          onCta={reportsAccess.reason === 'plan' ? handleUpgrade : undefined}
+          ctaHref={reportsAccess.reason === 'module' ? '/settings?tab=dorm' : undefined}
+          secondaryLabel="Back to dashboard"
+          secondaryHref="/admin-dashboard"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

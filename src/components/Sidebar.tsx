@@ -20,12 +20,12 @@ import {
   Building2,
   Bell,
   ChefHat,
+  Lock,
 } from "lucide-react";
 import {
   getRoleLabel,
   isModuleAvailable,
   type DemoSession,
-  type UserRole,
 } from "@/lib/demoSession";
 import { useDemoSession } from "./DemoSessionProvider";
 import { useDemoWorkspace } from "./DemoWorkspaceProvider";
@@ -40,6 +40,7 @@ interface NavItem {
   label: string;
   href: string;
   badge?: string | null;
+  locked?: boolean;
 }
 
 interface NavGroup {
@@ -100,15 +101,14 @@ function getNavGroups(session: DemoSession, adminMetrics: AdminNavMetrics) {
     const groups: NavGroup[] = [
       {
         label: "Kitchen",
-        items: hasMealService
-          ? [
-              {
-                icon: ChefHat,
-                label: "Kitchen Dashboard",
-                href: "/chef-dashboard",
-              },
-            ]
-          : [],
+        items: [
+          {
+            icon: ChefHat,
+            label: "Kitchen Dashboard",
+            href: "/chef-dashboard",
+            locked: !hasMealService,
+          },
+        ],
       },
       {
         label: "Account",
@@ -151,12 +151,13 @@ function getNavGroups(session: DemoSession, adminMetrics: AdminNavMetrics) {
     {
       label: "Analytics",
       items: [
-        ...(hasAnalytics
-          ? [{ icon: BarChart3, label: "Reports", href: "/reports" }]
-          : []),
-        ...(hasMultiDorm
-          ? [{ icon: Building2, label: "Multi-Dorm", href: "/multi-dorm" }]
-          : []),
+        { icon: BarChart3, label: "Reports", href: "/reports", locked: !hasAnalytics },
+        {
+          icon: Building2,
+          label: "Multi-Dorm",
+          href: "/multi-dorm",
+          locked: !hasMultiDorm,
+        },
       ],
     },
     {
@@ -320,7 +321,6 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         {!collapsed &&
           session.role === "Admin" &&
           currentDorm &&
-          isModuleAvailable(session, "multiDorm") &&
           activeDormOptions.length > 1 && (
             <div className="px-2">
               <p className="mb-1.5 px-3 text-[11px] font-500 uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
@@ -360,6 +360,8 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                       ${
                         isActive
                           ? "bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))]"
+                          : item.locked
+                            ? "border border-amber-200 bg-amber-50/70 text-amber-900 hover:bg-amber-100"
                           : "text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
                       }
                       ${collapsed ? "justify-center" : ""}
@@ -369,6 +371,12 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                     {!collapsed && (
                       <>
                         <span className="flex-1 truncate">{item.label}</span>
+                        {item.locked && (
+                          <Lock
+                            size={13}
+                            className="flex-shrink-0 text-[hsl(var(--muted-foreground))]"
+                          />
+                        )}
                         {item.badge && (
                           <span className="text-[11px] font-600 bg-[hsl(var(--primary))] text-white rounded-full px-1.5 py-0.5 min-w-[20px] text-center tabular-nums">
                             {item.badge}
@@ -376,8 +384,8 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                         )}
                       </>
                     )}
-                    {collapsed && item.badge && (
-                      <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+                    {collapsed && (item.badge || item.locked) && (
+                      <span className={`absolute top-1 right-1 h-2 w-2 rounded-full ${item.locked ? 'bg-amber-500' : 'bg-red-500'}`} />
                     )}
                   </Link>
                 );

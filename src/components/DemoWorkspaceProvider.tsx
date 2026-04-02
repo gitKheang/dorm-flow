@@ -19,9 +19,15 @@ import type {
   WorkspaceTenantRecord,
 } from "@/lib/demoWorkspace";
 import {
-  getDormEnabledModules,
+  canToggleModule as canToggleDormModule,
+  canUsePremiumFeature as canUseDormPremiumFeature,
+  getDormAvailableModules,
+  getDormPlan,
+  getDormPremiumFeatureAccess,
+  isPremiumDorm as isPremiumDormState,
   isNotificationVisibleToViewer,
 } from "@/lib/demoWorkspace";
+import type { DormPlan, PremiumFeature, PremiumFeatureAccess } from "@/lib/plans";
 import type { Room, RoomStatus, Tenant } from "@/lib/mockData";
 import {
   addDormToWorkspace,
@@ -41,10 +47,12 @@ import {
   reassignTenantRoomRecord,
   reInviteChefWithInvitation,
   setDormModuleEnabledRecord,
+  setDormPlanRecord,
   setTenantMealPreferenceRecord,
   setWorkspaceActiveDorm,
   syncWorkspaceState,
   mapDormToAuthDorm,
+  upgradeDormToPremiumRecord,
   updateDormRecord,
   updateChefStatusRecord,
   updateMaintenanceTicketStatus,
@@ -64,6 +72,7 @@ interface DemoWorkspaceContextValue {
   isHydrated: boolean;
   workspace: DemoWorkspaceState;
   currentDorm: DemoDorm | null;
+  currentDormPlan: DormPlan;
   currentDormRooms: WorkspaceRoomRecord[];
   currentDormTenants: WorkspaceTenantRecord[];
   currentDormChefs: ChefMember[];
@@ -75,7 +84,19 @@ interface DemoWorkspaceContextValue {
   currentUserNotifications: WorkspaceNotificationRecord[];
   unreadNotificationCount: number;
   hasModule: (module: EnabledModule) => boolean;
+  isPremiumDorm: (dormId?: string) => boolean;
+  canUsePremiumFeature: (
+    feature: PremiumFeature,
+    dormId?: string,
+  ) => boolean;
+  getPremiumFeatureAccess: (
+    feature: PremiumFeature,
+    dormId?: string,
+  ) => PremiumFeatureAccess;
+  canToggleModule: (module: EnabledModule, dormId?: string) => boolean;
   setModuleEnabled: (module: EnabledModule, enabled: boolean) => void;
+  setDormPlan: (plan: DormPlan, dormId?: string) => void;
+  upgradeDormToPremium: (dormId?: string) => void;
   setCurrentDorm: (dormId: string) => void;
   addDorm: (input: AddDormInput) => DemoDorm;
   updateDorm: (dormId: string, updates: UpdateDormInput) => void;
@@ -158,6 +179,14 @@ export default function DemoWorkspaceProvider({
       ) ?? null,
     [accessibleDormIds, activeDormId, workspaceState.dorms],
   );
+  const currentDormPlan = useMemo(
+    () =>
+      getDormPlan(
+        workspaceState,
+        currentDorm?.id ?? activeDormId,
+      ),
+    [activeDormId, currentDorm?.id, workspaceState],
+  );
   const scopedWorkspace = useMemo<DemoWorkspaceState>(() => {
     const dorms = workspaceState.dorms.filter((dorm) =>
       accessibleDormIds.has(dorm.id),
@@ -171,9 +200,12 @@ export default function DemoWorkspaceProvider({
       ...workspaceState,
       currentDormId: currentDorm?.id ?? activeDormId,
       enabledModules: currentDorm
-        ? getDormEnabledModules(workspaceState, currentDorm.id)
+        ? getDormAvailableModules(workspaceState, currentDorm.id)
         : workspaceState.enabledModules,
       dormModules: workspaceState.dormModules.filter((item) =>
+        accessibleDormIds.has(item.dormId),
+      ),
+      dormPlans: workspaceState.dormPlans.filter((item) =>
         accessibleDormIds.has(item.dormId),
       ),
       dorms,
@@ -301,6 +333,7 @@ export default function DemoWorkspaceProvider({
       isHydrated,
       workspace: scopedWorkspace,
       currentDorm,
+      currentDormPlan,
       currentDormRooms,
       currentDormTenants,
       currentDormChefs,
@@ -317,9 +350,35 @@ export default function DemoWorkspaceProvider({
         }
 
         return currentDorm
-          ? getDormEnabledModules(workspaceState, currentDorm.id).includes(
+          ? getDormAvailableModules(workspaceState, currentDorm.id).includes(
               module,
             )
+          : false;
+      },
+      isPremiumDorm: (dormId) =>
+        isPremiumDormState(
+          workspaceState,
+          dormId ?? currentDorm?.id ?? workspaceState.currentDormId,
+        ),
+      canUsePremiumFeature: (feature, dormId) => {
+        const resolvedDormId = dormId ?? currentDorm?.id;
+        return resolvedDormId
+          ? canUseDormPremiumFeature(workspaceState, resolvedDormId, feature)
+          : false;
+      },
+      getPremiumFeatureAccess: (feature, dormId) => {
+        const resolvedDormId =
+          dormId ?? currentDorm?.id ?? workspaceState.currentDormId;
+        return getDormPremiumFeatureAccess(
+          workspaceState,
+          resolvedDormId,
+          feature,
+        );
+      },
+      canToggleModule: (module, dormId) => {
+        const resolvedDormId = dormId ?? currentDorm?.id;
+        return resolvedDormId
+          ? canToggleDormModule(workspaceState, resolvedDormId, module)
           : false;
       },
       setModuleEnabled: (module, enabled) => {
@@ -331,6 +390,26 @@ export default function DemoWorkspaceProvider({
             currentDorm.id,
             module,
             enabled,
+          ),
+        );
+      },
+      setDormPlan: (plan, dormId) => {
+        const resolvedDormId = dormId ?? currentDorm?.id;
+        if (!resolvedDormId) return;
+
+        commitWorkspaceState(
+          setDormPlanRecord(workspaceState, session, resolvedDormId, plan),
+        );
+      },
+      upgradeDormToPremium: (dormId) => {
+        const resolvedDormId = dormId ?? currentDorm?.id;
+        if (!resolvedDormId) return;
+
+        commitWorkspaceState(
+          upgradeDormToPremiumRecord(
+            workspaceState,
+            session,
+            resolvedDormId,
           ),
         );
       },
@@ -500,7 +579,11 @@ export default function DemoWorkspaceProvider({
         };
       },
       canReInviteChef: (chefId) => {
-        if (!authState || !currentDorm) {
+        if (
+          !authState ||
+          !currentDorm ||
+          !canUseDormPremiumFeature(workspaceState, currentDorm.id, "chefManagement")
+        ) {
           return false;
         }
 
@@ -656,6 +739,7 @@ export default function DemoWorkspaceProvider({
       commitState,
       commitWorkspaceState,
       currentDorm,
+      currentDormPlan,
       currentDormActivityFeed,
       currentDormChefs,
       currentDormInvoices,

@@ -10,7 +10,7 @@ import {
   syncSessionProfileRecord,
   syncWorkspaceState,
 } from "@/lib/domain/workspaceActions";
-import { getDormEnabledModules } from "@/lib/demoWorkspace";
+import { getDormAvailableModules } from "@/lib/demoWorkspace";
 import {
   type AcceptInvitationInput,
   type SignInInput,
@@ -60,7 +60,7 @@ function normalizeEmail(value: string) {
 
 function resolveRoleModules(
   role: MembershipRole,
-  dormModules: ReturnType<typeof getDormEnabledModules>,
+  dormModules: ReturnType<typeof getDormAvailableModules>,
 ) {
   const roleAllowedModules: Record<MembershipRole, typeof dormModules> = {
     Admin: ["core", "mealService", "notifications", "analytics", "multiDorm"],
@@ -116,7 +116,7 @@ function resolveSessionView(
     authState.chefProfiles.find(
       (candidate) => candidate.membershipId === activeMembership.id,
     ) ?? null;
-  const dormModules = getDormEnabledModules(workspace, activeMembership.dormId);
+  const dormModules = getDormAvailableModules(workspace, activeMembership.dormId);
   const modules = resolveRoleModules(activeMembership.role, dormModules);
   const tenantRecord = tenantProfile
     ? workspace.tenants.find((tenant) => tenant.id === tenantProfile.tenantId)
@@ -392,17 +392,6 @@ export default function DemoSessionProvider({
           throw new Error(
             "Archived dorms cannot be used as active workspaces.",
           );
-        }
-
-        if (
-          dormId !== session.activeDorm.id &&
-          session.role === "Admin" &&
-          !getDormEnabledModules(
-            workspaceState,
-            session.activeDorm.id,
-          ).includes("multiDorm")
-        ) {
-          throw new Error("Multi-dorm access is disabled for the active dorm.");
         }
 
         const switched = authService.switchActiveDorm(authState, {

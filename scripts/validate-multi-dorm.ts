@@ -6,6 +6,8 @@ import {
   addDormToWorkspace,
   archiveDormRecord,
   mapDormToAuthDorm,
+  setDormModuleEnabledRecord,
+  setDormPlanRecord,
   syncWorkspaceState,
 } from '../src/lib/domain/workspaceActions';
 import {
@@ -132,8 +134,33 @@ function runValidation() {
     dormId: addedDormResult.value.id,
   });
 
-  const archivedWorkspace = archiveDormRecord(
+  assert.throws(
+    () =>
+      archiveDormRecord(
+        addedDormResult.workspace,
+        newDormSession,
+        addedDormResult.value.id,
+      ),
+    /premium/i,
+    'A newly created free dorm must not be able to use multi-dorm actions until upgraded.',
+  );
+
+  const upgradedWorkspace = setDormPlanRecord(
     addedDormResult.workspace,
+    newDormSession,
+    addedDormResult.value.id,
+    'premium',
+  );
+  const upgradedAndEnabledWorkspace = setDormModuleEnabledRecord(
+    upgradedWorkspace,
+    newDormSession,
+    addedDormResult.value.id,
+    'multiDorm',
+    true,
+  );
+
+  const archivedWorkspace = archiveDormRecord(
+    upgradedAndEnabledWorkspace,
     newDormSession,
     addedDormResult.value.id,
   );

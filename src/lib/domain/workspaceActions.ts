@@ -4,6 +4,7 @@ import {
   type DemoDorm,
   type DemoWorkspaceState,
   type DormModuleSettings,
+  type DormPlanSettings,
   type MaintenanceStatusHistoryEntry,
   type PaymentStatus,
   type WorkspaceActivityRecord,
@@ -14,11 +15,17 @@ import {
   type WorkspaceRoomRecord,
   type WorkspaceTenantRecord,
   DEFAULT_ENABLED_MODULES,
+  canToggleModule,
+  getDormAvailableModules,
+  getDormModuleAccess,
   getDormEnabledModules,
+  getDormPlan,
   isNotificationVisibleToViewer,
 } from "@/lib/demoWorkspace";
 import type { DemoSession } from "@/lib/demoSession";
 import type { EnabledModule } from "@/lib/modules";
+import { isPremiumModule } from "@/lib/modules";
+import type { DormPlan } from "@/lib/plans";
 import type {
   ChefMember,
   ChefShift,
@@ -44,6 +51,10 @@ import {
   getLatestInvoicePayment,
   sortPaymentsDescending,
 } from "@/lib/domain/paymentAnalytics";
+import {
+  DEFAULT_FREE_DORM_MODULES,
+  DEFAULT_PREMIUM_DORM_MODULES,
+} from "@/lib/plans";
 
 export interface AddDormInput {
   name: string;
@@ -152,6 +163,10 @@ function getModuleLabel(module: EnabledModule) {
     default:
       return "Core";
   }
+}
+
+function getPlanLabel(plan: DormPlan) {
+  return plan === "premium" ? "Premium" : "Free";
 }
 
 function buildPaymentReference(invoiceId: string) {
@@ -388,20 +403,34 @@ function syncInvoicesWithPayments(
 
 function syncDormModules(workspace: DemoWorkspaceState): DemoWorkspaceState {
   const nextWorkspace = cloneWorkspaceState(workspace);
+  nextWorkspace.dormPlans = nextWorkspace.dorms.map((dorm) => {
+    const existingPlan = nextWorkspace.dormPlans.find(
+      (item) => item.dormId === dorm.id,
+    );
+
+    return {
+      dormId: dorm.id,
+      plan: existingPlan?.plan ?? "free",
+    };
+  });
   nextWorkspace.dormModules = nextWorkspace.dorms.map((dorm) => {
     const existing = nextWorkspace.dormModules.find(
       (item) => item.dormId === dorm.id,
     );
+    const plan = nextWorkspace.dormPlans.find(
+      (item) => item.dormId === dorm.id,
+    )?.plan ?? "free";
+
     return {
       dormId: dorm.id,
       enabledModules: existing?.enabledModules?.length
         ? (Array.from(
             new Set(["core", ...existing.enabledModules.filter(Boolean)]),
           ) as EnabledModule[])
-        : [...DEFAULT_ENABLED_MODULES],
+        : [...(plan === "premium" ? DEFAULT_ENABLED_MODULES : DEFAULT_FREE_DORM_MODULES)],
     };
   });
-  nextWorkspace.enabledModules = getDormEnabledModules(
+  nextWorkspace.enabledModules = getDormAvailableModules(
     nextWorkspace,
     nextWorkspace.currentDormId,
   );
@@ -486,7 +515,7 @@ export function syncWorkspaceState(
     nextWorkspace.invoices,
     nextWorkspace.payments,
   );
-  nextWorkspace.enabledModules = getDormEnabledModules(
+  nextWorkspace.enabledModules = getDormAvailableModules(
     nextWorkspace,
     nextWorkspace.currentDormId,
   );
@@ -729,10 +758,6 @@ export function createDormRecord(
   input: AddDormInput,
 ): WorkspaceMutationResult<DemoDorm> {
   const nextWorkspace = cloneWorkspaceState(workspace);
-  const sourceModules = getDormEnabledModules(
-    workspace,
-    workspace.currentDormId,
-  );
   const nextDorm: DemoDorm = {
     id: `dorm-${Date.now()}`,
     name: input.name.trim(),
@@ -747,7 +772,11 @@ export function createDormRecord(
   nextWorkspace.dorms.unshift(nextDorm);
   nextWorkspace.dormModules.unshift({
     dormId: nextDorm.id,
-    enabledModules: [...sourceModules],
+    enabledModules: [...DEFAULT_FREE_DORM_MODULES],
+  });
+  nextWorkspace.dormPlans.unshift({
+    dormId: nextDorm.id,
+    plan: "free",
   });
   nextWorkspace.currentDormId = nextDorm.id;
   return { workspace: syncWorkspaceState(nextWorkspace), value: nextDorm };
@@ -828,6 +857,101 @@ export function archiveDormRecord(
   return syncWorkspaceState(nextWorkspace);
 }
 
+export function setDormPlanRecord(
+  workspace: DemoWorkspaceState,
+  session: DemoSession | null,
+  dormId: string,
+  plan: DormPlan,
+): DemoWorkspaceState {
+  requireDormAccess(workspace, session, dormId, ["Admin"]);
+
+  const currentPlan = getDormPlan(workspace, dormId);
+  if (currentPlan === plan) {
+    return workspace;
+  }
+
+  const nextWorkspace = cloneWorkspaceState(workspace);
+  if (!nextWorkspace.dormPlans.some((entry) => entry.dormId === dormId)) {
+    nextWorkspace.dormPlans.unshift({ dormId, plan });
+  } else {
+    nextWorkspace.dormPlans = nextWorkspace.dormPlans.map((entry) =>
+      entry.dormId === dormId ? { ...entry, plan } : entry,
+    );
+  }
+  nextWorkspace.activityFeed = appendActivityItem(
+    nextWorkspace.activityFeed,
+    dormId,
+    "assignment",
+    `${getPlanLabel(plan)} plan activated`,
+    session!.name,
+    plan === "premium"
+      ? "Premium tools can now be configured per module"
+      : "Premium data is preserved and premium actions are locked",
+  );
+
+  return syncWorkspaceState(nextWorkspace);
+}
+
+export function upgradeDormToPremiumRecord(
+  workspace: DemoWorkspaceState,
+  session: DemoSession | null,
+  dormId: string,
+): DemoWorkspaceState {
+  requireDormAccess(workspace, session, dormId, ["Admin"]);
+
+  const currentPlan = getDormPlan(workspace, dormId);
+  const currentModules = getDormEnabledModules(workspace, dormId);
+  const premiumModulesToEnable = DEFAULT_PREMIUM_DORM_MODULES.filter(
+    isPremiumModule,
+  );
+  const premiumDefaultsEnabled = premiumModulesToEnable.every((module) =>
+    currentModules.includes(module),
+  );
+
+  if (currentPlan === "premium" && premiumDefaultsEnabled) {
+    return workspace;
+  }
+
+  const nextWorkspace = cloneWorkspaceState(workspace);
+  if (!nextWorkspace.dormPlans.some((entry) => entry.dormId === dormId)) {
+    nextWorkspace.dormPlans.unshift({ dormId, plan: "premium" });
+  } else {
+    nextWorkspace.dormPlans = nextWorkspace.dormPlans.map((entry) =>
+      entry.dormId === dormId ? { ...entry, plan: "premium" } : entry,
+    );
+  }
+
+  const nextEnabledModules = Array.from(
+    new Set([...currentModules, ...premiumModulesToEnable]),
+  ) as EnabledModule[];
+  if (!nextWorkspace.dormModules.some((entry) => entry.dormId === dormId)) {
+    nextWorkspace.dormModules.unshift({
+      dormId,
+      enabledModules: nextEnabledModules,
+    });
+  } else {
+    nextWorkspace.dormModules = nextWorkspace.dormModules.map((entry) =>
+      entry.dormId === dormId
+        ? {
+            ...entry,
+            enabledModules: nextEnabledModules,
+          }
+        : entry,
+    );
+  }
+
+  nextWorkspace.activityFeed = appendActivityItem(
+    nextWorkspace.activityFeed,
+    dormId,
+    "assignment",
+    "Premium plan activated",
+    session!.name,
+    "Premium modules are now enabled for this dorm workspace",
+  );
+
+  return syncWorkspaceState(nextWorkspace);
+}
+
 export function setDormModuleEnabledRecord(
   workspace: DemoWorkspaceState,
   session: DemoSession | null,
@@ -838,6 +962,12 @@ export function setDormModuleEnabledRecord(
   requireDormAccess(workspace, session, dormId, ["Admin"]);
   if (module === "core") {
     return workspace;
+  }
+  if (!canToggleModule(workspace, dormId, module)) {
+    throw new DomainError(
+      "PREMIUM_UPGRADE_REQUIRED",
+      `${getModuleLabel(module)} requires the dorm to be on the Premium plan.`,
+    );
   }
 
   const nextWorkspace = cloneWorkspaceState(workspace);

@@ -1,14 +1,26 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, Building2, Lock, Save, User } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Bell, Building2, Lock, Save, Sparkles, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import PlanBadge from '@/components/premium/PlanBadge';
 import AppSelect from '@/components/ui/AppSelect';
 import { getRoleLabel } from '@/lib/demoSession';
+import type { DormPlan } from '@/lib/plans';
 
 type SettingsTab = 'profile' | 'security' | 'notifications' | 'dorm';
+
+function parseSettingsTab(value: string | null): SettingsTab | null {
+  return value === 'profile'
+    || value === 'security'
+    || value === 'notifications'
+    || value === 'dorm'
+    ? value
+    : null;
+}
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong.';
@@ -64,9 +76,21 @@ function ToggleSwitch({
 }
 
 export default function SettingsClient() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { authMode, session, updateSession, changePassword } = useDemoSession();
-  const { currentDorm, hasModule, setModuleEnabled, updateDorm } = useDemoWorkspace();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const {
+    canToggleModule,
+    currentDorm,
+    currentDormPlan,
+    hasModule,
+    setDormPlan,
+    upgradeDormToPremium,
+    setModuleEnabled,
+    updateDorm,
+    workspace,
+  } = useDemoWorkspace();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [dormName, setDormName] = useState('');
@@ -88,12 +112,10 @@ export default function SettingsClient() {
   }, [currentDorm, session]);
 
   const isAdmin = session?.role === 'Admin';
-
-  useEffect(() => {
-    if (!isAdmin && activeTab === 'dorm') {
-      setActiveTab('profile');
-    }
-  }, [activeTab, isAdmin]);
+  const requestedTab = parseSettingsTab(searchParams.get('tab'));
+  const activeTab: SettingsTab = requestedTab === 'dorm' && !isAdmin
+    ? 'profile'
+    : requestedTab ?? 'profile';
 
   const tabs = useMemo(() => {
     const baseTabs: Array<{ id: SettingsTab; label: string; icon: React.ElementType }> = [
@@ -174,21 +196,25 @@ export default function SettingsClient() {
       key: 'mealService' as const,
       label: 'Meal Service',
       desc: 'Turns chef operations and tenant meal-plan actions on or off while preserving meal history.',
+      premium: true,
     },
     {
       key: 'notifications' as const,
       label: 'Notifications',
       desc: 'Keeps historical alerts visible, but turning this off pauses new in-app notifications for the dorm.',
+      premium: false,
     },
     {
       key: 'analytics' as const,
       label: 'Reports & Analytics',
       desc: 'Controls reporting visibility only. Historical analytics data remains intact.',
+      premium: true,
     },
     {
       key: 'multiDorm' as const,
       label: 'Multi-Dorm Portfolio',
       desc: 'Controls cross-dorm management actions without changing the dorm’s stored history.',
+      premium: true,
     },
   ]), []);
 
@@ -280,6 +306,27 @@ export default function SettingsClient() {
     }
   }
 
+  function handlePlanChange(nextPlan: DormPlan) {
+    try {
+      if (!isAdmin || !currentDorm) {
+        throw new Error('Dorm plans can only be managed by owners.');
+      }
+
+      if (nextPlan === 'premium') {
+        upgradeDormToPremium(currentDorm.id);
+      } else {
+        setDormPlan(nextPlan, currentDorm.id);
+      }
+      toast.success(
+        nextPlan === 'premium'
+          ? 'Premium activated and premium modules enabled for this dorm'
+          : 'Dorm downgraded to Free. Premium data stays locked until you upgrade again.',
+      );
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }
+
   const initials = name
     .split(' ')
     .filter(Boolean)
@@ -296,11 +343,30 @@ export default function SettingsClient() {
   const isActionDisabled =
     activeTab === 'notifications'
     || (activeTab === 'security' && !isPasswordChangeAvailable);
+  const planSummary = currentDormPlan === 'premium'
+    ? 'Kitchen tools, reports, and multi-dorm controls are available for this dorm. Tenants and chefs inherit access automatically.'
+    : 'Core dorm operations stay free. Upgrade this dorm to unlock chef workflows, meal service, reports, and multi-dorm tools for everyone in the workspace.';
+
+  function handleTabChange(nextTab: SettingsTab) {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (nextTab === 'profile') {
+      params.delete('tab');
+    } else {
+      params.set('tab', nextTab);
+    }
+
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Settings</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Settings</h1>
+          {isAdmin && <PlanBadge plan={currentDormPlan} />}
+        </div>
         <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
           {isAdmin ? 'Manage your account and dorm preferences' : 'Manage your account and personal preferences'}
         </p>
@@ -310,7 +376,7 @@ export default function SettingsClient() {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             className={`flex items-center gap-2 flex-1 py-2 px-3 rounded-lg text-[13px] font-medium transition-all ${
               activeTab === tab.id
                 ? 'bg-white text-[hsl(var(--foreground))] shadow-sm'
@@ -453,6 +519,42 @@ export default function SettingsClient() {
           <>
             <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Dorm Settings</h2>
             <div className="space-y-4">
+              <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.3)] p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="max-w-xl">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">Dorm Plan</p>
+                      <PlanBadge plan={currentDormPlan} />
+                    </div>
+                    <p className="mt-2 text-[12px] leading-6 text-[hsl(var(--muted-foreground))]">
+                      {planSummary}
+                    </p>
+                    <p className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">
+                      Only the dorm owner pays. Tenant and chef access follows this dorm subscription automatically.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {currentDormPlan === 'free' ? (
+                      <button
+                        type="button"
+                        onClick={() => handlePlanChange('premium')}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)]"
+                      >
+                        <Sparkles size={15} />
+                        Upgrade to Premium
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handlePlanChange('free')}
+                        className="rounded-lg border border-[hsl(var(--border))] bg-white px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
+                      >
+                        Downgrade to Free
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Dormitory Name</label>
                 <input
@@ -505,25 +607,69 @@ export default function SettingsClient() {
                 </div>
                 <div className="space-y-3">
                   {dormModules.map((module) => {
-                    const enabled = hasModule(module.key);
+                    const canToggle = canToggleModule(module.key, currentDorm?.id);
+                    const lockedOnPlan = module.premium && !canToggle;
+                    const storedEnabled = currentDorm
+                      ? (
+                        workspace.dormModules.find((entry) => entry.dormId === currentDorm.id)?.enabledModules
+                        ?? []
+                      ).includes(module.key)
+                      : false;
+                    const enabled = lockedOnPlan ? storedEnabled : hasModule(module.key);
                     return (
-                      <div key={module.key} className="flex items-start justify-between gap-4 rounded-lg border border-[hsl(var(--border))] bg-white px-4 py-3">
+                      <div
+                        key={module.key}
+                        className={`flex items-start justify-between gap-4 rounded-lg border px-4 py-3 ${
+                          lockedOnPlan
+                            ? 'border-amber-200 bg-amber-50'
+                            : 'border-[hsl(var(--border))] bg-white'
+                        }`}
+                      >
                         <div>
-                          <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">{module.label}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">{module.label}</p>
+                            {module.premium && (
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                                Premium
+                              </span>
+                            )}
+                            {lockedOnPlan && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+                                Upgrade required
+                              </span>
+                            )}
+                          </div>
                           <p className="mt-0.5 text-[12px] text-[hsl(var(--muted-foreground))]">{module.desc}</p>
+                          {lockedOnPlan && (
+                            <p className="mt-1.5 text-[12px] text-amber-800">
+                              Current configuration is preserved as {storedEnabled ? 'enabled' : 'disabled'}, but this module stays locked until the dorm is upgraded to Premium.
+                            </p>
+                          )}
                         </div>
-                        <ToggleSwitch
-                          checked={enabled}
-                          onClick={() => setModuleEnabled(module.key, !enabled)}
-                          label={`Toggle ${module.label}`}
-                        />
+                        {lockedOnPlan ? (
+                          <button
+                            type="button"
+                            onClick={() => handlePlanChange('premium')}
+                            className="rounded-lg bg-white px-3 py-2 text-[12px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
+                          >
+                            Upgrade
+                          </button>
+                        ) : (
+                          <ToggleSwitch
+                            checked={enabled}
+                            onClick={() => setModuleEnabled(module.key, !enabled)}
+                            label={`Toggle ${module.label}`}
+                          />
+                        )}
                       </div>
                     );
                   })}
                 </div>
                 {!hasModule('mealService') && (
                   <p className="text-[12px] text-amber-700">
-                    Meal service is off. Chef dashboard access and tenant meal selection are paused until you re-enable it.
+                    {currentDormPlan === 'premium'
+                      ? 'Meal service is off. Chef dashboard access and tenant meal selection are paused until you re-enable it.'
+                      : 'Meal service is a Premium feature. Upgrade this dorm to unlock chef workflows and tenant meal preferences.'}
                   </p>
                 )}
               </div>

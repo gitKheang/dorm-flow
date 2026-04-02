@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { BedDouble, Mail, Phone, Plus, Search, UserCheck, UserX, Users, ChefHat } from 'lucide-react';
 import { toast } from 'sonner';
+import FeatureGateNotice from '@/components/premium/FeatureGateNotice';
 import AppSelect from '@/components/ui/AppSelect';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import { getTenantOperationalState } from '@/lib/demoWorkspace';
@@ -17,6 +18,7 @@ const chefShiftOptions = [
 ];
 
 export default function TenantsClient() {
+  const router = useRouter();
   const {
     canReInviteChef,
     createChefWithInvitation,
@@ -25,9 +27,11 @@ export default function TenantsClient() {
     currentDormChefs,
     currentDormRooms,
     currentDormTenants,
+    getPremiumFeatureAccess,
     hasModule,
     reassignTenantRoom,
     reInviteChef,
+    upgradeDormToPremium,
     updateChefStatus,
     updateTenantStatus,
   } = useDemoWorkspace();
@@ -49,6 +53,9 @@ export default function TenantsClient() {
   const [nextResidentRoomId, setNextResidentRoomId] = useState('');
 
   const mealServiceEnabled = hasModule('mealService');
+  const chefManagementAccess = currentDorm
+    ? getPremiumFeatureAccess('chefManagement', currentDorm.id)
+    : null;
 
   const filteredResidents = useMemo(() => {
     return currentDormTenants.filter((tenant) => {
@@ -334,6 +341,22 @@ export default function TenantsClient() {
     }
   }
 
+  function handleUpgradeDorm() {
+    if (!currentDorm) {
+      return false;
+    }
+
+    try {
+      upgradeDormToPremium(currentDorm.id);
+      toast.success('Premium activated and chef workflows enabled for this dorm');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to upgrade the dorm.';
+      toast.error(message);
+      return false;
+    }
+  }
+
   const activeViewCount = activeView === 'residents' ? filteredResidents.length : filteredChefs.length;
 
   return (
@@ -354,7 +377,14 @@ export default function TenantsClient() {
             }
 
             if (!mealServiceEnabled) {
-              toast.info('Enable meal service in Dorm Settings before inviting kitchen staff.');
+              if (chefManagementAccess?.reason === 'plan') {
+                const didUpgrade = handleUpgradeDorm();
+                if (didUpgrade) {
+                  setShowChefForm(true);
+                }
+              } else {
+                router.push('/settings?tab=dorm');
+              }
               return;
             }
 
@@ -363,7 +393,13 @@ export default function TenantsClient() {
           className="flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[hsl(var(--primary)/0.9)]"
         >
           <Plus size={15} />
-          {activeView === 'residents' ? (showResidentForm ? 'Close Form' : 'Add Resident') : (showChefForm ? 'Close Form' : 'Invite Chef')}
+          {activeView === 'residents'
+            ? (showResidentForm ? 'Close Form' : 'Add Resident')
+            : mealServiceEnabled
+              ? (showChefForm ? 'Close Form' : 'Invite Chef')
+              : chefManagementAccess?.reason === 'plan'
+                ? 'Upgrade to Invite Chefs'
+                : 'Enable Meal Service'}
         </button>
       </div>
 
@@ -387,13 +423,21 @@ export default function TenantsClient() {
           <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-blue-700">Kitchen Staff</p>
           <p className="mt-3 text-3xl font-semibold text-blue-900">{chefCounts.active}</p>
           <p className="mt-1 text-[13px] text-blue-700">
-            {mealServiceEnabled ? `${chefCounts.invited} invitation${chefCounts.invited === 1 ? '' : 's'} still pending` : 'Meal service is currently disabled'}
+            {mealServiceEnabled
+              ? `${chefCounts.invited} invitation${chefCounts.invited === 1 ? '' : 's'} still pending`
+              : chefManagementAccess?.reason === 'plan'
+                ? 'Premium upgrade required for chef workflows'
+                : 'Meal service is currently disabled'}
           </p>
         </div>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
           <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-emerald-700">Shared Workflow</p>
           <p className="mt-3 text-lg font-semibold text-emerald-900">
-            {mealServiceEnabled ? 'Meal service active' : 'Core operations only'}
+            {mealServiceEnabled
+              ? 'Meal service active'
+              : chefManagementAccess?.reason === 'plan'
+                ? 'Free plan active'
+                : 'Core operations only'}
           </p>
           <p className="mt-1 text-[13px] text-emerald-700">
             Residents manage their stay, while staff only sees the work assigned to them.
@@ -469,6 +513,27 @@ export default function TenantsClient() {
           </div>
         )}
       </div>
+
+      {activeView === 'kitchen' && !mealServiceEnabled && (
+        <FeatureGateNotice
+          eyebrow={chefManagementAccess?.reason === 'plan' ? 'Premium feature' : 'Module paused'}
+          title={
+            chefManagementAccess?.reason === 'plan'
+              ? 'Chef workflows are locked on the Free plan'
+              : 'Chef workflows are paused for this dorm'
+          }
+          description={
+            chefManagementAccess?.reason === 'plan'
+              ? 'Chef onboarding, chef invitations, and kitchen operations are part of the dorm owner Premium subscription. Existing chef records stay preserved, but write actions stay locked until you upgrade this dorm.'
+              : 'This dorm is already on Premium, but meal service is currently turned off in settings. Existing chef records remain visible while chef actions stay locked.'
+          }
+          ctaLabel={chefManagementAccess?.reason === 'plan' ? 'Upgrade to Premium' : 'Open settings'}
+          onCta={chefManagementAccess?.reason === 'plan' ? handleUpgradeDorm : undefined}
+          ctaHref={chefManagementAccess?.reason === 'module' ? '/settings?tab=dorm' : undefined}
+          secondaryLabel="View chef dashboard"
+          secondaryHref="/chef-dashboard"
+        />
+      )}
 
       {showResidentForm && activeView === 'residents' && (
         <form onSubmit={handleAddResident} className="space-y-4 rounded-xl border border-[hsl(var(--border))] bg-white p-6">
@@ -762,7 +827,7 @@ export default function TenantsClient() {
             </div>
           )}
         </div>
-      ) : mealServiceEnabled ? (
+      ) : (
         <div className="overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-white">
           <div className="border-b border-[hsl(var(--border))] px-5 py-4">
             <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Kitchen Staff</h2>
@@ -807,12 +872,16 @@ export default function TenantsClient() {
                     </td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex justify-end gap-2">
-                        {chef.invitationLifecycleState === 'pending' ? (
+                        {!mealServiceEnabled ? (
+                          <span className="text-[12px] font-medium text-[hsl(var(--muted-foreground))]">
+                            {chefManagementAccess?.reason === 'plan' ? 'Locked on Free plan' : 'Meal service paused'}
+                          </span>
+                        ) : chef.invitationLifecycleState === 'pending' ? (
                           <span className="text-[12px] font-medium text-[hsl(var(--muted-foreground))]">
                             Awaiting acceptance
                           </span>
                         ) : null}
-                        {chef.invitationLifecycleState !== 'pending' && chef.status !== 'Active' && (
+                        {mealServiceEnabled && chef.invitationLifecycleState !== 'pending' && chef.status !== 'Active' && (
                           <button
                             type="button"
                             onClick={() => handleChefStatusChange(chef.id, 'Active')}
@@ -821,7 +890,7 @@ export default function TenantsClient() {
                             Activate
                           </button>
                         )}
-                        {chef.invitationLifecycleState !== 'pending' && canReInviteChef(chef.id) && (
+                        {mealServiceEnabled && chef.invitationLifecycleState !== 'pending' && canReInviteChef(chef.id) && (
                           <button
                             type="button"
                             onClick={() => handleChefReInvite(chef.id)}
@@ -830,7 +899,7 @@ export default function TenantsClient() {
                             Re-invite
                           </button>
                         )}
-                        {chef.invitationLifecycleState !== 'pending' && chef.status !== 'Inactive' && (
+                        {mealServiceEnabled && chef.invitationLifecycleState !== 'pending' && chef.status !== 'Inactive' && (
                           <button
                             type="button"
                             onClick={() => handleChefStatusChange(chef.id, 'Inactive')}
@@ -851,19 +920,6 @@ export default function TenantsClient() {
               <p className="text-[14px] text-[hsl(var(--muted-foreground))]">No kitchen staff found</p>
             </div>
           )}
-        </div>
-      ) : (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
-          <h2 className="text-[15px] font-semibold text-amber-900">Meal service is disabled</h2>
-          <p className="mt-2 text-[13px] text-amber-800">
-            Kitchen staff should only be managed when the meal-service module is enabled by the dorm owner.
-          </p>
-          <Link
-            href="/settings"
-            className="mt-4 inline-flex rounded-lg bg-white px-4 py-2.5 text-[13px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
-          >
-            Open Dorm Settings
-          </Link>
         </div>
       )}
     </div>

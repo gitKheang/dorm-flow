@@ -4,6 +4,8 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import FeatureGateNotice from '@/components/premium/FeatureGateNotice';
+import PlanBadge from '@/components/premium/PlanBadge';
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 
@@ -19,6 +21,9 @@ export default function MultiDormPage() {
     addDorm,
     archiveDorm,
     currentDorm,
+    currentDormPlan,
+    getPremiumFeatureAccess,
+    upgradeDormToPremium,
     workspace,
   } = useDemoWorkspace();
   const [showForm, setShowForm] = useState(false);
@@ -31,6 +36,9 @@ export default function MultiDormPage() {
     () => new Set(session?.memberships.map((membership) => membership.dormId) ?? []),
     [session?.memberships],
   );
+  const multiDormAccess = currentDorm
+    ? getPremiumFeatureAccess('multiDormPortfolio', currentDorm.id)
+    : null;
 
   const activeDorms = useMemo(
     () => workspace.dorms.filter(
@@ -71,6 +79,20 @@ export default function MultiDormPage() {
   const averageCollectionRate = portfolio.length > 0
     ? Math.round(portfolio.reduce((sum, item) => sum + item.collectionRate, 0) / portfolio.length)
     : 0;
+
+  function handleUpgrade() {
+    if (!currentDorm) {
+      return;
+    }
+
+    try {
+      upgradeDormToPremium(currentDorm.id);
+      toast.success('Premium activated for this dorm workspace');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to upgrade the dorm.';
+      toast.error(message);
+    }
+  }
 
   function handleAddDorm(event: React.FormEvent) {
     event.preventDefault();
@@ -128,6 +150,40 @@ export default function MultiDormPage() {
     }
   }
 
+  if (currentDorm && multiDormAccess && !multiDormAccess.allowed) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Multi-Dorm Portfolio</h1>
+            <PlanBadge plan={currentDormPlan} />
+          </div>
+          <p className="mt-0.5 text-[14px] text-[hsl(var(--muted-foreground))]">
+            Single-dorm operations stay free. Portfolio controls unlock only for dorms on Premium.
+          </p>
+        </div>
+        <FeatureGateNotice
+          eyebrow={multiDormAccess.reason === 'plan' ? 'Premium feature' : 'Module paused'}
+          title={
+            multiDormAccess.reason === 'plan'
+              ? 'Upgrade this dorm to manage a portfolio'
+              : 'Multi-dorm controls are paused for this dorm'
+          }
+          description={
+            multiDormAccess.reason === 'plan'
+              ? 'Dorm owners pay per dorm workspace. Upgrade this dorm to add properties, switch active workspaces, and review portfolio-level metrics without changing tenant or chef billing.'
+              : 'This dorm is already on Premium, but the multi-dorm module is currently turned off in settings. Existing dorm data stays intact and will become available again as soon as the module is re-enabled.'
+          }
+          ctaLabel={multiDormAccess.reason === 'plan' ? 'Upgrade to Premium' : 'Open settings'}
+          onCta={multiDormAccess.reason === 'plan' ? handleUpgrade : undefined}
+          ctaHref={multiDormAccess.reason === 'module' ? '/settings?tab=dorm' : undefined}
+          secondaryLabel="Return to dashboard"
+          secondaryHref="/admin-dashboard"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -139,7 +195,7 @@ export default function MultiDormPage() {
         </div>
         <div className="flex gap-2">
           <Link
-            href="/settings"
+            href="/settings?tab=dorm"
             className="rounded-lg border border-[hsl(var(--border))] bg-white px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
           >
             Edit Active Dorm
@@ -340,7 +396,7 @@ export default function MultiDormPage() {
                       </button>
                     )}
                     <Link
-                      href="/settings"
+                      href="/settings?tab=dorm"
                       onClick={(event) => {
                         if (isActiveDorm) {
                           return;

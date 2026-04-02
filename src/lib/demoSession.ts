@@ -77,11 +77,6 @@ export function canAccessPath(pathname: string, session: DemoSession | null): bo
         return false;
       }
 
-      const requiredModule = getRequiredModuleForPath(pathname);
-      if (requiredModule && !isModuleAvailable(session, requiredModule)) {
-        return false;
-      }
-
       return true;
     }
   }

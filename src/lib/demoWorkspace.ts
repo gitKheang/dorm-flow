@@ -1,5 +1,6 @@
-import type { EnabledModule } from "@/lib/modules";
+import { isPremiumModule, type EnabledModule } from "@/lib/modules";
 import type { MembershipRole } from "@/lib/auth/types";
+import type { DormPlan, PremiumFeature } from "@/lib/plans";
 import type {
   ActivityItem,
   Invoice,
@@ -26,6 +27,16 @@ import {
   type WorkspaceRoom,
   type WorkspaceTenant,
 } from "@/lib/demoData";
+import {
+  canToggleModuleForPlan,
+  canUsePremiumFeature as canUsePremiumFeatureForPlan,
+  DEFAULT_FREE_DORM_MODULES,
+  DEFAULT_PREMIUM_DORM_MODULES,
+  getPremiumFeatureAccess as getPremiumFeatureAccessForPlan,
+  isPremiumPlan,
+  type FeatureAccessReason,
+  type PremiumFeatureAccess,
+} from "@/lib/plans";
 
 export type ChefShift = "Morning" | "Evening" | "Split";
 export type ChefStatus = "Active" | "Invited" | "Inactive";
@@ -98,6 +109,11 @@ export interface DormModuleSettings {
   enabledModules: EnabledModule[];
 }
 
+export interface DormPlanSettings {
+  dormId: string;
+  plan: DormPlan;
+}
+
 export interface MaintenanceStatusHistoryEntry {
   id: string;
   dormId: string;
@@ -163,6 +179,7 @@ export interface DemoWorkspaceState {
   enabledModules: EnabledModule[];
   currentDormId: string;
   dormModules: DormModuleSettings[];
+  dormPlans: DormPlanSettings[];
   dorms: DemoDorm[];
   rooms: WorkspaceRoom[];
   tenants: WorkspaceTenant[];
@@ -180,17 +197,20 @@ export interface DemoWorkspaceState {
 export const DEMO_WORKSPACE_STORAGE_KEY = "dormflow-demo-workspace-v2";
 
 export const DEFAULT_ENABLED_MODULES: EnabledModule[] = [
-  "core",
-  "mealService",
-  "notifications",
-  "analytics",
-  "multiDorm",
+  ...DEFAULT_PREMIUM_DORM_MODULES,
 ];
 
 function buildDefaultDormModules(dorms: DemoDorm[]): DormModuleSettings[] {
   return dorms.map((dorm) => ({
     dormId: dorm.id,
     enabledModules: [...DEFAULT_ENABLED_MODULES],
+  }));
+}
+
+function buildDefaultDormPlans(dorms: DemoDorm[]): DormPlanSettings[] {
+  return dorms.map((dorm) => ({
+    dormId: dorm.id,
+    plan: "premium",
   }));
 }
 
@@ -433,6 +453,7 @@ export const DEFAULT_WORKSPACE_STATE: DemoWorkspaceState = {
   enabledModules: [...DEFAULT_ENABLED_MODULES],
   currentDormId: "dorm-001",
   dormModules: buildDefaultDormModules(DEMO_DORMS),
+  dormPlans: buildDefaultDormPlans(DEMO_DORMS),
   dorms: DEMO_DORMS,
   rooms: DEMO_ROOMS,
   tenants: DEMO_TENANTS,
@@ -460,6 +481,10 @@ function cloneDefaultWorkspace(): DemoWorkspaceState {
     dormModules: DEFAULT_WORKSPACE_STATE.dormModules.map((item) => ({
       dormId: item.dormId,
       enabledModules: [...item.enabledModules],
+    })),
+    dormPlans: DEFAULT_WORKSPACE_STATE.dormPlans.map((item) => ({
+      dormId: item.dormId,
+      plan: item.plan,
     })),
     dorms: DEFAULT_WORKSPACE_STATE.dorms.map((dorm) => ({ ...dorm })),
     rooms: DEFAULT_WORKSPACE_STATE.rooms.map((room) => ({
@@ -525,6 +550,10 @@ function asEnabledModules(value: unknown): EnabledModule[] {
   return filtered.includes("core") ? filtered : ["core", ...filtered];
 }
 
+function isDormPlan(value: unknown): value is DormPlan {
+  return value === "free" || value === "premium";
+}
+
 function isDormModuleSettings(value: unknown): value is DormModuleSettings {
   if (!value || typeof value !== "object") return false;
   const settings = value as Partial<DormModuleSettings>;
@@ -533,6 +562,12 @@ function isDormModuleSettings(value: unknown): value is DormModuleSettings {
     Array.isArray(settings.enabledModules) &&
     settings.enabledModules.every(isEnabledModule)
   );
+}
+
+function isDormPlanSettings(value: unknown): value is DormPlanSettings {
+  if (!value || typeof value !== "object") return false;
+  const settings = value as Partial<DormPlanSettings>;
+  return isString(settings.dormId) && isDormPlan(settings.plan);
 }
 
 function isDorm(value: unknown): value is DemoDorm {
@@ -848,6 +883,19 @@ function resolveDormModules(
   }));
 }
 
+function resolveDormPlans(
+  dorms: DemoDorm[],
+  storedDormPlans: DormPlanSettings[],
+  fallbackPlan: DormPlan,
+): DormPlanSettings[] {
+  return dorms.map((dorm) => ({
+    dormId: dorm.id,
+    plan:
+      storedDormPlans.find((item) => item.dormId === dorm.id)?.plan ??
+      fallbackPlan,
+  }));
+}
+
 export function getDormEnabledModules(
   workspace: Pick<
     DemoWorkspaceState,
@@ -860,6 +908,128 @@ export function getDormEnabledModules(
     (item) => item.dormId === resolvedDormId,
   )?.enabledModules;
   return asEnabledModules(configured ?? workspace.enabledModules);
+}
+
+export function getDormPlan(
+  workspace: Pick<DemoWorkspaceState, "currentDormId" | "dormPlans">,
+  dormId?: string,
+): DormPlan {
+  const resolvedDormId = dormId ?? workspace.currentDormId;
+  return (
+    workspace.dormPlans.find((item) => item.dormId === resolvedDormId)?.plan ??
+    "free"
+  );
+}
+
+export function isPremiumDorm(
+  workspace: Pick<DemoWorkspaceState, "currentDormId" | "dormPlans">,
+  dormId?: string,
+): boolean {
+  return isPremiumPlan(getDormPlan(workspace, dormId));
+}
+
+export function canToggleModule(
+  workspace: Pick<
+    DemoWorkspaceState,
+    "currentDormId" | "dormPlans"
+  >,
+  dormId: string,
+  module: EnabledModule,
+): boolean {
+  return canToggleModuleForPlan(getDormPlan(workspace, dormId), module);
+}
+
+export function getDormAvailableModules(
+  workspace: Pick<
+    DemoWorkspaceState,
+    "currentDormId" | "dormModules" | "enabledModules" | "dormPlans"
+  >,
+  dormId?: string,
+): EnabledModule[] {
+  const storedModules = getDormEnabledModules(workspace, dormId);
+  const plan = getDormPlan(workspace, dormId);
+
+  return storedModules.filter(
+    (module) =>
+      module === "core" ||
+      !isPremiumModule(module) ||
+      canToggleModuleForPlan(plan, module),
+  );
+}
+
+export function getDormPremiumFeatureAccess(
+  workspace: Pick<
+    DemoWorkspaceState,
+    "currentDormId" | "dormModules" | "enabledModules" | "dormPlans"
+  >,
+  dormId: string,
+  feature: PremiumFeature,
+): PremiumFeatureAccess {
+  return getPremiumFeatureAccessForPlan(
+    getDormPlan(workspace, dormId),
+    getDormEnabledModules(workspace, dormId),
+    feature,
+  );
+}
+
+export function canUsePremiumFeature(
+  workspace: Pick<
+    DemoWorkspaceState,
+    "currentDormId" | "dormModules" | "enabledModules" | "dormPlans"
+  >,
+  dormId: string,
+  feature: PremiumFeature,
+): boolean {
+  return canUsePremiumFeatureForPlan(
+    getDormPlan(workspace, dormId),
+    getDormEnabledModules(workspace, dormId),
+    feature,
+  );
+}
+
+export function getDormModuleAccess(
+  workspace: Pick<
+    DemoWorkspaceState,
+    "currentDormId" | "dormModules" | "enabledModules" | "dormPlans"
+  >,
+  dormId: string,
+  module: EnabledModule,
+): {
+  allowed: boolean;
+  reason: FeatureAccessReason;
+  plan: DormPlan;
+} {
+  const plan = getDormPlan(workspace, dormId);
+
+  if (module === "core") {
+    return {
+      allowed: true,
+      reason: null,
+      plan,
+    };
+  }
+
+  if (!canToggleModuleForPlan(plan, module)) {
+    return {
+      allowed: false,
+      reason: "plan",
+      plan,
+    };
+  }
+
+  if (!getDormEnabledModules(workspace, dormId).includes(module)) {
+    return {
+      allowed: false,
+      reason: "module",
+      plan,
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: null,
+    plan,
+  };
 }
 
 export function getTenantOperationalState(
@@ -962,6 +1132,15 @@ export function restoreDemoWorkspace(
       ),
       fallbackModules,
     );
+    const dormPlans = resolveDormPlans(
+      dorms,
+      filterOrDefault(
+        parsed.dormPlans,
+        fallback.dormPlans,
+        isDormPlanSettings,
+      ),
+      "premium",
+    );
     const tenants = filterOrDefault(parsed.tenants, fallback.tenants, isTenant);
     const invoices = filterOrDefault(
       parsed.invoices,
@@ -988,12 +1167,18 @@ export function restoreDemoWorkspace(
           fallback.currentDormId);
 
     return {
-      enabledModules: getDormEnabledModules(
-        { currentDormId, dormModules, enabledModules: fallbackModules },
+      enabledModules: getDormAvailableModules(
+        {
+          currentDormId,
+          dormModules,
+          dormPlans,
+          enabledModules: fallbackModules,
+        },
         currentDormId,
       ),
       currentDormId,
       dormModules,
+      dormPlans,
       dorms,
       rooms: filterOrDefault(parsed.rooms, fallback.rooms, isRoom),
       tenants,
