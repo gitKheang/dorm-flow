@@ -53,7 +53,7 @@ export default function DashboardKPIs({
             <OccupancyDirectionIcon size={14} />
             <span className="text-[12px] text-white/80">
               {analytics.occupancy.changeFromRangeStart >= 0 ? '+' : ''}
-              {analytics.occupancy.changeFromRangeStart}% vs range start
+              {analytics.occupancy.changeFromRangeStart}% vs start of range
             </span>
           </div>
         </div>
@@ -106,7 +106,7 @@ export default function DashboardKPIs({
           )}
         </div>
         <div>
-          <p className="text-[12px] font-500 uppercase tracking-wider text-amber-700/70">Open Tickets</p>
+          <p className="text-[12px] font-500 uppercase tracking-wider text-amber-700/70">Open Maintenance</p>
           <p className="text-3xl font-700 tabular-nums text-amber-800 mt-0.5">{analytics.maintenance.openTickets}</p>
         </div>
         <p className="text-[12px] text-amber-700">{analytics.maintenance.inProgressTickets} in progress</p>
@@ -128,7 +128,7 @@ export default function DashboardKPIs({
           <p className="text-3xl font-700 tabular-nums text-[hsl(var(--foreground))] mt-0.5">{analytics.occupancy.availableRooms}</p>
         </div>
         <Link href="/room-management" className="text-[12px] text-[hsl(var(--primary))] hover:underline font-medium">
-          View room inventory →
+          Open room list →
         </Link>
       </div>
       {/* Card 6: Monthly Revenue — col-span-2 to fill last row */}

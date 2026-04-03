@@ -154,7 +154,7 @@ function getNavGroups(session: DemoSession, adminMetrics: AdminNavMetrics) {
         { icon: BarChart3, label: "Reports", href: "/reports", locked: !hasAnalytics },
         {
           icon: Building2,
-          label: "Multi-Dorm",
+          label: "Dorms",
           href: "/multi-dorm",
           locked: !hasMultiDorm,
         },
@@ -186,6 +186,7 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const router = useRouter();
   const { session, signOut, switchActiveDorm } = useDemoSession();
   const {
+    canUsePremiumFeature,
     currentDorm,
     currentDormInvoices,
     currentDormMaintenanceTickets,
@@ -202,17 +203,36 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
       ),
     [session?.memberships],
   );
+  const canManageMultipleDorms = currentDorm
+    ? canUsePremiumFeature("multiDormPortfolio", currentDorm.id)
+    : false;
   const activeDormOptions = useMemo(
-    () =>
-      workspace.dorms
+    () => {
+      if (!currentDorm) {
+        return [];
+      }
+
+      const currentDormOption = {
+        value: currentDorm.id,
+        label: `${currentDorm.name} · ${currentDorm.city}`,
+      };
+
+      if (!canManageMultipleDorms) {
+        return [currentDormOption];
+      }
+
+      const options = workspace.dorms
         .filter(
           (dorm) => dorm.status === "Active" && membershipDormIds.has(dorm.id),
         )
         .map((dorm) => ({
           value: dorm.id,
           label: `${dorm.name} · ${dorm.city}`,
-        })),
-    [membershipDormIds, workspace.dorms],
+        }));
+
+      return options.length > 0 ? options : [currentDormOption];
+    },
+    [canManageMultipleDorms, currentDorm, membershipDormIds, workspace.dorms],
   );
   const adminMetrics = useMemo<AdminNavMetrics>(
     () => ({
@@ -321,10 +341,10 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         {!collapsed &&
           session.role === "Admin" &&
           currentDorm &&
-          activeDormOptions.length > 1 && (
+          activeDormOptions.length > 0 && (
             <div className="px-2">
               <p className="mb-1.5 px-3 text-[11px] font-500 uppercase tracking-wider text-[hsl(var(--muted-foreground))]">
-                Active Dorm
+                Active dorm
               </p>
               <AppSelect
                 ariaLabel="Active dorm"

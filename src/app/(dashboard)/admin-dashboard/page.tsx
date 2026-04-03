@@ -70,8 +70,8 @@ export default function AdminDashboardPage() {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="inline-flex items-center gap-1.5 text-[12px] text-[hsl(var(--muted-foreground))] bg-white border border-[hsl(var(--border))] rounded-lg px-3 py-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              Live data · Updated just now
+              <span className="w-2 h-2 bg-green-500 rounded-full" />
+              Current workspace data
             </span>
           </div>
         </div>
@@ -82,7 +82,7 @@ export default function AdminDashboardPage() {
               <div>
                 <p className="text-[13px] font-semibold text-amber-900">Free plan active for this dorm</p>
                 <p className="mt-1 text-[12px] text-amber-800">
-                  Core dorm operations stay free. Upgrade this dorm when you need chef workflows, meal service, reports, or multi-dorm portfolio management.
+                  Core dorm operations stay free. Upgrade this dorm when you need kitchen tools, meal service, reports, or multiple dorms.
                 </p>
               </div>
               <Link

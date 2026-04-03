@@ -7,7 +7,7 @@ import type { DemoWorkspaceState } from "@/lib/demoWorkspace";
 import { DEMO_WORKSPACE_STORAGE_KEY } from "@/lib/demoWorkspace";
 import { SESSION_STORAGE_KEY } from "@/lib/demoSession";
 
-export const DEMO_APP_SYNC_STORAGE_KEY = "dormflow-demo-app-sync-v1";
+export const DEMO_APP_SYNC_STORAGE_KEY = "dormflow-demo-app-sync-v2";
 const DEMO_APP_SYNC_CHANNEL_NAME = "dormflow-demo-app-sync";
 
 export interface SharedAppStateSnapshot {

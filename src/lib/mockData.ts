@@ -3,6 +3,29 @@ export type RoomType = 'Single' | 'Double' | 'Triple' | 'Suite';
 export type MaintenanceStatus = 'Open' | 'In Progress' | 'Resolved';
 export type MaintenancePriority = 'Low' | 'Medium' | 'High' | 'Critical';
 export type InvoiceStatus = 'Paid' | 'Issued' | 'Overdue' | 'Draft';
+export type InvoiceLineItemType =
+  | 'roomRent'
+  | 'mealCharges'
+  | 'lateFee'
+  | 'adjustment';
+
+export interface MaintenanceAttachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  dataUrl: string;
+}
+
+export interface InvoiceLineItem {
+  id: string;
+  type: InvoiceLineItemType;
+  label: string;
+  amount: number;
+  quantity?: number;
+  unitPrice?: number;
+  description?: string;
+}
 
 export interface Tenant {
   id: string;
@@ -42,6 +65,7 @@ export interface MaintenanceTicket {
   updatedDate: string;
   description: string;
   category: string;
+  attachments?: MaintenanceAttachment[];
 }
 
 export interface Invoice {
@@ -54,6 +78,7 @@ export interface Invoice {
   issuedDate: string;
   status: InvoiceStatus;
   period: string;
+  lineItems?: InvoiceLineItem[];
 }
 
 export interface ActivityItem {

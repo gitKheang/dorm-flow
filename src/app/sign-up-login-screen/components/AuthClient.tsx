@@ -46,30 +46,30 @@ interface InviteFormValues {
 const DEMO_ACCOUNTS = [
   {
     id: 'owner',
-    label: 'Dorm Owner',
+    label: 'Owner',
     icon: Users,
     color: 'text-[hsl(var(--primary))]',
     email: 'admin@sunrisedorm.app',
     password: 'SunriseAdmin2026',
-    description: 'Multi-dorm owner account with access across the portfolio.',
+    description: 'Owner account with access to dorm operations and settings.',
   },
   {
     id: 'tenant',
-    label: 'Tenant',
+    label: 'Resident',
     icon: BedDouble,
     color: 'text-green-600',
     email: 'sophea.kang@dormflow.app',
     password: 'TenantPass2026',
-    description: 'Accepted tenant invitation linked to Room 101.',
+    description: 'Resident account with room details, invoices, and maintenance.',
   },
   {
     id: 'chef',
-    label: 'Chef',
+    label: 'Kitchen Staff',
     icon: ChefHat,
     color: 'text-amber-600',
     email: 'chef.kim@sunrisedorm.app',
     password: 'ChefKitchen2026',
-    description: 'Accepted chef invitation linked to the Sunrise kitchen.',
+    description: 'Kitchen account with meal planning and resident notes.',
   },
 ];
 
@@ -157,7 +157,7 @@ export default function AuthClient() {
         password: data.password,
         dormName: data.dormName,
       });
-      toast.success('Owner account created. Your demo workspace is ready.');
+      toast.success('Owner account created.');
       router.push(nextSession.homePath);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create the account.';
@@ -178,7 +178,7 @@ export default function AuthClient() {
         password: data.password,
         code: data.code,
       });
-      toast.success('Invitation accepted. Your workspace is ready.');
+      toast.success('Invitation accepted.');
       router.push(nextSession.homePath);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to accept the invitation.';
@@ -193,16 +193,16 @@ export default function AuthClient() {
     loginForm.setValue('email', email);
     loginForm.setValue('password', password);
     if (mode !== 'login') setMode('login');
-    toast.info('Demo credentials filled in');
+    toast.info('Sample account filled in');
   }
 
   const features = [
-    'Room & seat occupancy management',
-    'Automated rent invoicing',
-    'Maintenance request tracking',
+    'Track rooms and occupancy',
+    'Manage residents and kitchen staff',
+    'Review invoices and payments',
+    'Handle maintenance requests',
     'Role-based dashboards',
-    'Invite-only tenant and chef onboarding',
-    'Multi-dorm enterprise controls',
+    'Switch between dorm workspaces',
   ];
 
   const modeHeading =
@@ -213,10 +213,10 @@ export default function AuthClient() {
         : 'Accept your dorm invitation';
   const modeDescription =
     mode === 'login'
-      ? 'Use your email and password. Access is determined by your memberships, not by choosing a role.'
+      ? 'Use your email and password to open the workspace linked to your account.'
       : mode === 'register'
-        ? 'Public signup is limited to dorm owners. Tenant and chef access must come through invitations.'
-        : 'Tenant and chef accounts are invite-only. Use the email and code sent by your dorm owner.';
+        ? 'Create an owner account and your first dorm workspace.'
+        : 'Use the invitation code shared with you to join a dorm as a resident or kitchen staff member.';
   return (
     <div className="min-h-screen flex lg:h-[100dvh] lg:overflow-hidden">
       <div className="hidden lg:flex lg:w-[52%] xl:w-[55%] bg-[hsl(var(--primary))] flex-col justify-between p-12 relative overflow-hidden">
@@ -232,11 +232,11 @@ export default function AuthClient() {
         <div className="relative space-y-8">
           <div>
             <h1 className="text-4xl font-700 text-white leading-tight">
-              Dormitory management<br />
-              <span className="text-white/70">built for operators.</span>
+              Run your dorm<br />
+              <span className="text-white/70">from one workspace.</span>
             </h1>
             <p className="text-white/70 text-[15px] mt-4 leading-relaxed max-w-md">
-              Identity-based access is now separated from the demo workspace so you can keep building the frontend while preparing for a real backend later.
+              Sign in as an owner, resident, or kitchen staff member to see the tools available for each role.
             </p>
           </div>
           <div className="space-y-3">
@@ -250,10 +250,9 @@ export default function AuthClient() {
         </div>
 
         <div className="relative border-t border-white/20 pt-6">
-          <p className="text-white/60 text-[13px] italic">
-            "DormFlow cut our invoice chase time by 60%. The occupancy dashboard alone is worth it."
+          <p className="text-white/60 text-[13px]">
+            Use one of the sample accounts on the right to review each role before creating your own account.
           </p>
-          <p className="text-white/50 text-[12px] mt-1">— Property Manager, Riverside Residence</p>
         </div>
       </div>
 
@@ -269,7 +268,7 @@ export default function AuthClient() {
               <div className="bg-[hsl(var(--muted))] rounded-xl p-1 grid grid-cols-3 gap-1">
                 {([
                   { id: 'login' as const, label: 'Sign In' },
-                  { id: 'register' as const, label: 'Owner Signup' },
+                  { id: 'register' as const, label: 'Owner Sign Up' },
                   { id: 'invite' as const, label: 'Accept Invite' },
                 ]).map((item) => (
                   <button
@@ -288,7 +287,7 @@ export default function AuthClient() {
 
               <div className="space-y-1">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--primary))]">
-                  {mode === 'login' ? 'Welcome Back' : mode === 'register' ? 'Owner Access' : 'Invite-Only Access'}
+                  {mode === 'login' ? 'Welcome Back' : mode === 'register' ? 'Owner Access' : 'Invitation'}
                 </p>
                 <h2 className="text-[26px] font-semibold leading-tight text-[hsl(var(--foreground))]">
                   {modeHeading}
@@ -326,9 +325,7 @@ export default function AuthClient() {
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Password</label>
-                      <button type="button" className="text-[12px] text-[hsl(var(--primary))] hover:underline">
-                        Forgot password?
-                      </button>
+                      <span className="text-[12px] text-[hsl(var(--muted-foreground))]">Use the password for this account</span>
                     </div>
                     <div className="relative">
                       <input
@@ -364,7 +361,7 @@ export default function AuthClient() {
                       className="rounded border-[hsl(var(--border))] accent-[hsl(var(--primary))]"
                     />
                     <label htmlFor="remember" className="text-[13px] text-[hsl(var(--muted-foreground))]">
-                      Remember me for 30 days
+                      Keep me signed in on this device
                     </label>
                   </div>
 
@@ -385,7 +382,7 @@ export default function AuthClient() {
 
                   <div className="rounded-xl border border-[hsl(var(--primary)/0.15)] bg-[hsl(var(--primary)/0.04)] p-4 space-y-3">
                     <p className="text-[12px] font-semibold text-[hsl(var(--primary))] uppercase tracking-wider">
-                      Demo Accounts
+                      Sample Accounts
                     </p>
                     <div className="space-y-2">
                       {DEMO_ACCOUNTS.map((account) => {
@@ -414,7 +411,7 @@ export default function AuthClient() {
                   </div>
 
                   <p className="text-center text-[13px] text-[hsl(var(--muted-foreground))]">
-                    Need a new dorm owner account?{' '}
+                    Need an owner account?{' '}
                     <button
                       type="button"
                       onClick={() => setMode('register')}
@@ -436,7 +433,7 @@ export default function AuthClient() {
                       <div>
                         <p className="text-[13px] font-semibold text-blue-900">Owner signup only</p>
                         <p className="mt-1 text-[12px] text-blue-800">
-                          Tenant and chef accounts must be created through invitations from inside the dorm workspace.
+                          Resident and kitchen staff accounts are added from inside the dorm workspace.
                         </p>
                       </div>
                     </div>
@@ -486,7 +483,7 @@ export default function AuthClient() {
                     <input
                       type="text"
                       {...registerForm.register('dormName')}
-                      placeholder="Optional in demo mode"
+                      placeholder="Dorm name (optional)"
                       className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] focus:border-[hsl(var(--primary))] placeholder:text-[hsl(var(--muted-foreground))]"
                     />
                   </div>
@@ -558,10 +555,7 @@ export default function AuthClient() {
                       className="mt-0.5 rounded border-[hsl(var(--border))] accent-[hsl(var(--primary))]"
                     />
                     <label htmlFor="ownerTerms" className="text-[13px] text-[hsl(var(--muted-foreground))] leading-relaxed">
-                      I agree to the{' '}
-                      <button type="button" className="text-[hsl(var(--primary))] hover:underline font-medium">Terms of Service</button>
-                      {' '}and{' '}
-                      <button type="button" className="text-[hsl(var(--primary))] hover:underline font-medium">Privacy Policy</button>
+                      I agree to continue with this account setup.
                     </label>
                   </div>
                   {registerForm.formState.errors.agreeTerms && (
@@ -604,9 +598,9 @@ export default function AuthClient() {
                         <MailPlus size={16} className="text-amber-600" />
                       </div>
                       <div>
-                        <p className="text-[13px] font-semibold text-amber-900">Invite-only onboarding</p>
+                        <p className="text-[13px] font-semibold text-amber-900">Invitation required</p>
                         <p className="mt-1 text-[12px] text-amber-800">
-                          Use this flow for tenant or chef access after the dorm owner creates a local demo invitation.
+                          Use this form when you have an invitation code from a dorm owner.
                         </p>
                       </div>
                     </div>
@@ -734,10 +728,7 @@ export default function AuthClient() {
                       className="mt-0.5 rounded border-[hsl(var(--border))] accent-[hsl(var(--primary))]"
                     />
                     <label htmlFor="inviteTerms" className="text-[13px] text-[hsl(var(--muted-foreground))] leading-relaxed">
-                      I agree to the{' '}
-                      <button type="button" className="text-[hsl(var(--primary))] hover:underline font-medium">Terms of Service</button>
-                      {' '}and{' '}
-                      <button type="button" className="text-[hsl(var(--primary))] hover:underline font-medium">Privacy Policy</button>
+                      I agree to continue with this account setup.
                     </label>
                   </div>
                   {inviteForm.formState.errors.agreeTerms && (
@@ -760,7 +751,7 @@ export default function AuthClient() {
                   </button>
 
                   <p className="text-center text-[13px] text-[hsl(var(--muted-foreground))]">
-                    Already activated?{' '}
+                    Already have an account?{' '}
                     <button
                       type="button"
                       onClick={() => setMode('login')}

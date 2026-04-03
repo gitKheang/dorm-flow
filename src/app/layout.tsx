@@ -13,7 +13,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: 'DormFlow — Dormitory Management Made Simple',
-  description: 'DormFlow helps dormitory operators manage rooms, tenants, invoices, payments, and maintenance from a single role-specific dashboard.',
+  description: 'DormFlow helps dorm operators manage rooms, residents, invoices, payments, and maintenance in one workspace.',
   icons: {
     icon: [{ url: '/dormflow-mark.svg', type: 'image/svg+xml' }],
   },

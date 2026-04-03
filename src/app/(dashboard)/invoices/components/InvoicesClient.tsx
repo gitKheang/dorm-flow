@@ -14,11 +14,16 @@ import {
 import { toast } from "sonner";
 import { useDemoSession } from "@/components/DemoSessionProvider";
 import { useDemoWorkspace } from "@/components/DemoWorkspaceProvider";
-import type { WorkspacePaymentRecord } from "@/lib/demoWorkspace";
+import ExportDialog from "@/components/ui/ExportDialog";
+import {
+  summarizeInvoiceLineItems,
+  type WorkspacePaymentRecord,
+} from "@/lib/demoWorkspace";
 import {
   buildPaymentSummary,
   getLatestInvoicePayment,
 } from "@/lib/domain/paymentAnalytics";
+import { exportRowsToCsv, openPrintableExport } from "@/lib/export";
 import type { Invoice } from "@/lib/mockData";
 import { InvoiceStatus } from "@/lib/mockData";
 
@@ -35,6 +40,84 @@ const statusIcons: Record<InvoiceStatus, React.ElementType> = {
   Overdue: AlertTriangle,
   Draft: FileText,
 };
+
+function InvoiceBreakdown({
+  invoice,
+  compact = false,
+}: {
+  invoice: Invoice;
+  compact?: boolean;
+}) {
+  const summary = summarizeInvoiceLineItems(invoice.lineItems);
+  const mealLineItem = invoice.lineItems?.find(
+    (lineItem) => lineItem.type === "mealCharges",
+  );
+  const rows = [
+    {
+      label: "Room rent",
+      amount: summary.roomRent,
+      description: "Base monthly room charge",
+    },
+    {
+      label: "Meal charges",
+      amount: summary.mealCharges,
+      description: mealLineItem?.description ?? "No meal charges applied",
+    },
+    {
+      label: "Late fee",
+      amount: summary.lateFee,
+      description:
+        summary.lateFee > 0
+          ? "Added after the invoice due date passed."
+          : "No late fee on this invoice",
+    },
+    {
+      label: "Adjustment",
+      amount: summary.adjustment,
+      description:
+        summary.adjustment !== 0
+          ? "Manual billing adjustment"
+          : "No manual adjustment",
+    },
+  ];
+
+  return (
+    <div
+      className={`rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.28)] ${
+        compact ? "mt-4 p-4" : "p-4"
+      }`}
+    >
+      <div className="space-y-2">
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            className="flex items-start justify-between gap-4 text-[13px]"
+          >
+            <div>
+              <p className="font-medium text-[hsl(var(--foreground))]">
+                {row.label}
+              </p>
+              <p className="mt-0.5 text-[12px] text-[hsl(var(--muted-foreground))]">
+                {row.description}
+              </p>
+            </div>
+            <span className="font-medium text-[hsl(var(--foreground))]">
+              ${row.amount.toLocaleString()}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex items-center justify-between border-t border-[hsl(var(--border))] pt-3">
+        <p className="text-[13px] font-semibold text-[hsl(var(--foreground))]">
+          Total
+        </p>
+        <p className="text-[15px] font-semibold text-[hsl(var(--foreground))]">
+          ${summary.total.toLocaleString()}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function TenantInvoicesView({
   invoices,
@@ -72,8 +155,8 @@ function TenantInvoicesView({
           </h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
             {roomNumber
-              ? `Room ${roomNumber} billing history`
-              : "Personal billing history"}
+              ? `Billing for Room ${roomNumber}`
+              : "Your billing history"}
           </p>
         </div>
         {(nextDue || pendingReviewInvoice) && (
@@ -103,7 +186,7 @@ function TenantInvoicesView({
           >
             <CreditCard size={15} />
             {nextDue
-              ? `Submit $${nextDue.amount}`
+              ? `Submit $${nextDue.amount} payment`
               : "Payment under review"}
           </button>
         )}
@@ -122,7 +205,7 @@ function TenantInvoicesView({
           </p>
           <p className="mt-1 text-[13px] opacity-75">
             {outstanding.length
-              ? `${outstanding.length} invoice${outstanding.length > 1 ? "s" : ""} awaiting action`
+              ? `${outstanding.length} open invoice${outstanding.length > 1 ? "s" : ""}`
               : "Nothing due right now"}
           </p>
         </div>
@@ -145,7 +228,7 @@ function TenantInvoicesView({
             {overdueCount}
           </p>
           <p className="mt-1 text-[13px] text-[hsl(var(--muted-foreground))]">
-            Invoices that need immediate payment
+            Invoices that are past due
           </p>
         </div>
       </div>
@@ -219,8 +302,8 @@ function TenantInvoicesView({
                       }
                       toast.info(
                         receipt
-                          ? `Receipt ${receipt.reference} · ${invoice.period}`
-                          : `Viewing receipt for ${invoice.period}`,
+                          ? `Payment reference: ${receipt.reference}`
+                          : `No payment reference recorded for ${invoice.period}`,
                       );
                     }}
                     className={`mt-3 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-medium transition-colors ${
@@ -242,10 +325,11 @@ function TenantInvoicesView({
                         ? rejectedPayment
                           ? "Resubmit payment"
                           : "Submit payment"
-                        : "View receipt"}
+                        : "Payment reference"}
                   </button>
                 </div>
               </div>
+              <InvoiceBreakdown invoice={invoice} compact />
             </div>
           );
         })}
@@ -276,6 +360,8 @@ export default function InvoicesClient() {
   const [filterStatus, setFilterStatus] = useState<InvoiceStatus | "All">(
     "All",
   );
+  const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   const filtered = useMemo(() => {
     return currentDormInvoices.filter((invoice) => {
@@ -331,6 +417,62 @@ export default function InvoicesClient() {
   const totalOverdue = paymentSummary.overdueAmount;
   const totalIssued = paymentSummary.issuedAmount;
 
+  function handleExport(format: "csv" | "pdf") {
+    const exportRows = filtered.map((invoice) => {
+      const summary = summarizeInvoiceLineItems(invoice.lineItems);
+      const mealLineItem = invoice.lineItems?.find(
+        (lineItem) => lineItem.type === "mealCharges",
+      );
+      return {
+        invoiceId: invoice.id,
+        tenantName: invoice.tenantName,
+        roomNumber: invoice.roomNumber,
+        period: invoice.period,
+        status: invoice.status,
+        dueDate: invoice.dueDate,
+        roomRent: summary.roomRent,
+        mealCharges: summary.mealCharges,
+        mealCalculation: mealLineItem?.description ?? "No meal charges",
+        lateFee: summary.lateFee,
+        adjustment: summary.adjustment,
+        total: summary.total,
+      };
+    });
+    const columns = [
+      { key: "invoiceId", label: "Invoice", accessor: (row: (typeof exportRows)[number]) => row.invoiceId },
+      { key: "tenantName", label: "Resident", accessor: (row: (typeof exportRows)[number]) => row.tenantName },
+      { key: "roomNumber", label: "Room", accessor: (row: (typeof exportRows)[number]) => `Room ${row.roomNumber}` },
+      { key: "period", label: "Period", accessor: (row: (typeof exportRows)[number]) => row.period },
+      { key: "status", label: "Status", accessor: (row: (typeof exportRows)[number]) => row.status },
+      { key: "dueDate", label: "Due Date", accessor: (row: (typeof exportRows)[number]) => row.dueDate },
+      { key: "roomRent", label: "Room Rent", accessor: (row: (typeof exportRows)[number]) => row.roomRent },
+      { key: "mealCharges", label: "Meal Charges", accessor: (row: (typeof exportRows)[number]) => row.mealCharges },
+      { key: "mealCalculation", label: "Meal Calculation", accessor: (row: (typeof exportRows)[number]) => row.mealCalculation },
+      { key: "lateFee", label: "Late Fee", accessor: (row: (typeof exportRows)[number]) => row.lateFee },
+      { key: "adjustment", label: "Adjustment", accessor: (row: (typeof exportRows)[number]) => row.adjustment },
+      { key: "total", label: "Total", accessor: (row: (typeof exportRows)[number]) => row.total },
+    ];
+
+    if (format === "csv") {
+      exportRowsToCsv(
+        `${(currentDorm?.name ?? "dorm").toLowerCase().replace(/\s+/g, "-")}-invoices.csv`,
+        exportRows,
+        columns,
+      );
+      toast.success("Invoice CSV exported");
+    } else {
+      openPrintableExport({
+        title: `${currentDorm?.name ?? "Dorm"} invoice export`,
+        subtitle: "Current visible invoice rows with line-item totals",
+        rows: exportRows,
+        columns,
+      });
+      toast.success("Invoice print view opened");
+    }
+
+    setShowExportDialog(false);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -339,13 +481,12 @@ export default function InvoicesClient() {
             Invoices
           </h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            {currentDorm?.name ?? "Dorm"} · {currentDormInvoices.length}{" "}
-            invoices total
+            {currentDorm?.name ?? "Dorm"} · {currentDormInvoices.length} invoices on file
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => toast.info("Exporting invoices...")}
+            onClick={() => setShowExportDialog(true)}
             className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--foreground))] bg-white border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
           >
             <Download size={15} />
@@ -357,12 +498,12 @@ export default function InvoicesClient() {
                 const createdCount = generateInvoices();
                 if (createdCount === 0) {
                   toast.info(
-                    "All active residents already have the next billing cycle prepared.",
+                    "All active residents already have the next billing cycle ready.",
                   );
                   return;
                 }
                 toast.success(
-                  `${createdCount} invoice${createdCount === 1 ? "" : "s"} generated for May 2026`,
+                  `${createdCount} invoice${createdCount === 1 ? "" : "s"} generated.`,
                 );
               } catch (error) {
                 const message =
@@ -449,7 +590,7 @@ export default function InvoicesClient() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by tenant, room, or period..."
+            placeholder="Search by resident, room, or period..."
             className="w-full pl-9 pr-4 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
           />
         </div>
@@ -481,7 +622,7 @@ export default function InvoicesClient() {
                   Invoice
                 </th>
                 <th className="text-left px-5 py-3 text-[12px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
-                  Tenant
+                  Resident
                 </th>
                 <th className="text-left px-5 py-3 text-[12px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
                   Room
@@ -512,8 +653,8 @@ export default function InvoicesClient() {
                   ["pending"],
                 );
                 return (
+                  <React.Fragment key={invoice.id}>
                   <tr
-                    key={invoice.id}
                     className="hover:bg-[hsl(var(--muted)/0.3)] transition-colors"
                   >
                     <td className="px-5 py-4 text-[13px] font-mono text-[hsl(var(--muted-foreground))]">
@@ -602,15 +743,25 @@ export default function InvoicesClient() {
                         ) : null}
                         <button
                           onClick={() =>
-                            toast.info(`Viewing invoice ${invoice.id}`)
+                            setExpandedInvoiceId((current) =>
+                              current === invoice.id ? null : invoice.id,
+                            )
                           }
                           className="text-[12px] text-[hsl(var(--primary))] font-medium hover:underline"
                         >
-                          View
+                          {expandedInvoiceId === invoice.id ? "Hide" : "View"}
                         </button>
                       </div>
                     </td>
                   </tr>
+                  {expandedInvoiceId === invoice.id && (
+                    <tr className="bg-[hsl(var(--muted)/0.22)]">
+                      <td colSpan={8} className="px-5 py-4">
+                        <InvoiceBreakdown invoice={invoice} />
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -619,7 +770,7 @@ export default function InvoicesClient() {
         {filtered.length === 0 && (
           <div className="text-center py-12">
             <p className="text-[14px] text-[hsl(var(--muted-foreground))]">
-              No invoices found
+              No invoices match this filter
             </p>
           </div>
         )}
@@ -629,6 +780,13 @@ export default function InvoicesClient() {
           </p>
         </div>
       </div>
+      <ExportDialog
+        description="Export the invoices currently shown in the table, including rent, meal charges, late fees, adjustments, and totals."
+        isOpen={showExportDialog}
+        onClose={() => setShowExportDialog(false)}
+        onExport={handleExport}
+        title="Export invoices"
+      />
     </div>
   );
 }

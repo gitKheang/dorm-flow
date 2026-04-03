@@ -48,7 +48,7 @@ export default function OccupancyChart({
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Occupancy Trend</h2>
-          <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">Rooms occupied vs available — last 30 days</p>
+          <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">Occupied and available rooms for the selected period</p>
         </div>
         <span className="text-[12px] text-[hsl(var(--muted-foreground))] bg-[hsl(var(--muted))] rounded-lg px-3 py-1.5">
           {rangeLabel}

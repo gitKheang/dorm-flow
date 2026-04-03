@@ -1,6 +1,9 @@
 import type { AuthService } from "@/lib/auth/service";
 import type { AuthStoreSnapshot, Invitation } from "@/lib/auth/types";
 import {
+  buildInvoiceLineItems,
+  countEnabledMealSelections,
+  deriveMealPlanFromSelections,
   type DemoDorm,
   type DemoWorkspaceState,
   type DormModuleSettings,
@@ -21,6 +24,8 @@ import {
   getDormEnabledModules,
   getDormPlan,
   isNotificationVisibleToViewer,
+  normalizeMealSelections,
+  summarizeInvoiceLineItems,
 } from "@/lib/demoWorkspace";
 import type { DemoSession } from "@/lib/demoSession";
 import type { EnabledModule } from "@/lib/modules";
@@ -33,6 +38,7 @@ import type {
   TenantMealPreference,
 } from "@/lib/demoWorkspace";
 import type {
+  MaintenanceAttachment,
   MaintenancePriority,
   MaintenanceStatus,
   Room,
@@ -96,6 +102,7 @@ export interface AddMaintenanceTicketInput {
   description: string;
   category: string;
   priority?: MaintenancePriority;
+  attachments?: MaintenanceAttachment[];
 }
 
 export interface AddMealInput {
@@ -294,6 +301,15 @@ function prependDormNotifications(
   }
 
   return prependNotifications(workspace.notifications, notifications);
+}
+
+function getActiveTenantIdsForDorm(
+  workspace: DemoWorkspaceState,
+  dormId: string,
+) {
+  return workspace.tenants
+    .filter((tenant) => tenant.dormId === dormId && tenant.status === "Active")
+    .map((tenant) => tenant.id);
 }
 
 function resolveAuthUserName(
@@ -510,11 +526,74 @@ export function syncWorkspaceState(
     nextWorkspace.rooms,
     nextWorkspace.tenants,
   );
+  nextWorkspace.maintenanceTickets = nextWorkspace.maintenanceTickets.map(
+    (ticket) => ({
+      ...ticket,
+      attachments: ticket.attachments?.map((attachment) => ({ ...attachment })) ?? [],
+    }),
+  );
+  nextWorkspace.tenantMealPreferences = nextWorkspace.tenantMealPreferences.map(
+    (preference) => {
+      const selections = normalizeMealSelections(preference);
+      return {
+        ...preference,
+        plan: deriveMealPlanFromSelections(selections),
+        selections,
+        updatedAt: preference.updatedAt ?? new Date().toISOString(),
+      };
+    },
+  );
   nextWorkspace.payments = sortPaymentsDescending(nextWorkspace.payments);
   nextWorkspace.invoices = syncInvoicesWithPayments(
     nextWorkspace.invoices,
     nextWorkspace.payments,
-  );
+  ).map((invoice) => {
+    const room =
+      nextWorkspace.rooms.find(
+        (candidate) =>
+          candidate.dormId === invoice.dormId &&
+          candidate.roomNumber === invoice.roomNumber,
+      ) ??
+      nextWorkspace.rooms.find(
+        (candidate) =>
+          candidate.dormId === invoice.dormId &&
+          candidate.assignedTenants.includes(invoice.tenantName),
+      );
+    const preference = nextWorkspace.tenantMealPreferences.find(
+      (candidate) => candidate.tenantId === invoice.tenantId,
+    );
+    const mealSelectionsCount = countEnabledMealSelections(
+      normalizeMealSelections(preference),
+    );
+    const hasLateFee = invoice.lineItems?.some(
+      (lineItem) => lineItem.type === "lateFee",
+    );
+    const lineItems =
+      invoice.lineItems && invoice.lineItems.length > 0
+        ? invoice.status === "Overdue" && !hasLateFee
+          ? [
+              ...invoice.lineItems,
+              ...buildInvoiceLineItems({
+                invoiceId: invoice.id,
+                roomRent: room?.rentPerMonth ?? invoice.amount,
+                mealSelectionsCount,
+                status: "Overdue",
+              }).filter((lineItem) => lineItem.type === "lateFee"),
+            ]
+          : invoice.lineItems
+        : buildInvoiceLineItems({
+            invoiceId: invoice.id,
+            roomRent: room?.rentPerMonth ?? invoice.amount,
+            mealSelectionsCount,
+            status: invoice.status,
+          });
+
+    return {
+      ...invoice,
+      lineItems,
+      amount: summarizeInvoiceLineItems(lineItems).total,
+    };
+  });
   nextWorkspace.enabledModules = getDormAvailableModules(
     nextWorkspace,
     nextWorkspace.currentDormId,
@@ -2224,19 +2303,34 @@ export function generateInvoicesForCurrentDorm(
       return;
     }
 
+    const mealPreference = nextWorkspace.tenantMealPreferences.find(
+      (preference) => preference.tenantId === tenant.id,
+    );
+    const invoiceId = createRecordId("inv", tenant.id);
+    const lineItems = buildInvoiceLineItems({
+      invoiceId,
+      roomRent: room.rentPerMonth,
+      mealSelectionsCount: countEnabledMealSelections(
+        normalizeMealSelections(mealPreference),
+      ),
+      status: "Issued",
+    });
+    const amount = summarizeInvoiceLineItems(lineItems).total;
+
     existingKeys.add(uniquenessKey);
     newInvoices.push({
-      id: createRecordId("inv", tenant.id),
+      id: invoiceId,
       dormId: dorm.id,
       tenantId: tenant.id,
       tenantName: tenant.name,
       roomNumber: room.roomNumber,
-      amount: room.rentPerMonth,
+      amount,
       dueDate: billing.dueDate,
       issuedDate: billing.issuedDate,
       status: "Issued",
       period,
       billingPeriodKey: billing.billingPeriodKey,
+      lineItems,
     });
   });
 
@@ -2574,6 +2668,7 @@ export function createMaintenanceTicketRecord(
     updatedDate: formatDate(new Date()),
     description: input.description.trim() || "No extra details provided.",
     category: input.category,
+    attachments: input.attachments?.map((attachment) => ({ ...attachment })) ?? [],
   };
 
   const nextWorkspace = cloneWorkspaceState(workspace);
@@ -2725,13 +2820,19 @@ export function setTenantMealPreferenceRecord(
   }
 
   const nextWorkspace = cloneWorkspaceState(workspace);
+  const normalizedSelections = normalizeMealSelections({
+    plan: updates.plan,
+    selections: updates.selections,
+  });
   const existingIndex = nextWorkspace.tenantMealPreferences.findIndex(
     (preference) => preference.tenantId === tenantId,
   );
   const nextPreference: TenantMealPreference = {
     tenantId,
-    plan: updates.plan,
+    plan: deriveMealPlanFromSelections(normalizedSelections),
     notes: updates.notes,
+    selections: normalizedSelections,
+    updatedAt: new Date().toISOString(),
   };
 
   if (existingIndex >= 0) {
@@ -2768,6 +2869,22 @@ export function addMealRecord(
 
   const nextWorkspace = cloneWorkspaceState(workspace);
   nextWorkspace.mealItems.push(nextMeal);
+  nextWorkspace.notifications = prependDormNotifications(
+    nextWorkspace,
+    dorm.id,
+    [
+      createNotification({
+        dormId: dorm.id,
+        type: "meal",
+        eventType: "meal-schedule-updated",
+        message: `${nextMeal.name} added to the meal schedule`,
+        actor: session!.name,
+        meta: `${nextMeal.day} · ${nextMeal.category}`,
+        tenantIds: getActiveTenantIdsForDorm(workspace, dorm.id),
+        chefVisible: true,
+      }),
+    ],
+  );
   return { workspace: syncWorkspaceState(nextWorkspace), value: nextMeal };
 }
 
@@ -2811,7 +2928,7 @@ export function updateMealStatusRecord(
         message: `${meal.name} status updated`,
         actor: session!.name,
         meta: `${meal.day} · ${meal.category} · ${status}`,
-        tenantIds: [],
+        tenantIds: getActiveTenantIdsForDorm(workspace, dorm.id),
         chefVisible: true,
       }),
     ],
@@ -2907,10 +3024,31 @@ export function deleteMealRecord(
     "Chef",
   ]);
   requireModuleEnabled(workspace, dorm.id, "mealService");
+  const meal = workspace.mealItems.find(
+    (candidate) => candidate.id === mealId && candidate.dormId === dorm.id,
+  );
 
   const nextWorkspace = cloneWorkspaceState(workspace);
   nextWorkspace.mealItems = nextWorkspace.mealItems.filter(
     (meal) => !(meal.id === mealId && meal.dormId === dorm.id),
   );
+  if (meal) {
+    nextWorkspace.notifications = prependDormNotifications(
+      nextWorkspace,
+      dorm.id,
+      [
+        createNotification({
+          dormId: dorm.id,
+          type: "meal",
+          eventType: "meal-schedule-updated",
+          message: `${meal.name} removed from the meal schedule`,
+          actor: session!.name,
+          meta: `${meal.day} · ${meal.category}`,
+          tenantIds: getActiveTenantIdsForDorm(workspace, dorm.id),
+          chefVisible: true,
+        }),
+      ],
+    );
+  }
   return syncWorkspaceState(nextWorkspace);
 }

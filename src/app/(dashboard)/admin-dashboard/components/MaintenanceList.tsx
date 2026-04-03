@@ -26,11 +26,11 @@ export default function MaintenanceList({ tickets }: { tickets: MaintenanceTicke
     <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Active Maintenance</h2>
-          <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">{activeTickets.length} open tickets requiring attention</p>
+          <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Maintenance</h2>
+          <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">{activeTickets.length} open or in-progress requests</p>
         </div>
         <Link href="/maintenance" className="text-[12px] text-[hsl(var(--primary))] font-medium hover:underline">
-          View all
+          Open maintenance
         </Link>
       </div>
       <div className="space-y-2">
@@ -64,7 +64,7 @@ export default function MaintenanceList({ tickets }: { tickets: MaintenanceTicke
           );
         })}
         {activeTickets.length === 0 && (
-          <p className="py-6 text-[13px] text-[hsl(var(--muted-foreground))]">No open maintenance items in this dorm.</p>
+          <p className="py-6 text-[13px] text-[hsl(var(--muted-foreground))]">No open maintenance requests in this dorm.</p>
         )}
       </div>
     </div>

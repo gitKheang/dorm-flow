@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,6 +11,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import ExportDialog from '@/components/ui/ExportDialog';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import {
   buildPaymentSummary,
@@ -19,6 +20,7 @@ import {
   sortPaymentsDescending,
 } from '@/lib/domain/paymentAnalytics';
 import type { WorkspacePaymentRecord } from '@/lib/demoWorkspace';
+import { exportRowsToCsv, openPrintableExport } from '@/lib/export';
 import {
   Bar,
   BarChart,
@@ -92,6 +94,51 @@ export default function PaymentsClient() {
     () => sortPaymentsDescending(currentDormPayments).slice(0, 8),
     [currentDormPayments],
   );
+  const [showExportDialog, setShowExportDialog] = useState(false);
+
+  function handleExport(format: 'csv' | 'pdf') {
+    const exportRows = recentPayments.map((payment) => ({
+      tenantName: payment.tenantName,
+      roomNumber: payment.roomNumber,
+      invoicePeriod: payment.invoicePeriod,
+      amount: payment.amount,
+      status: formatPaymentStatus(payment.status),
+      methodLabel: payment.methodLabel,
+      reference: payment.reference,
+      updatedAt: new Date(payment.completedAt ?? payment.initiatedAt).toLocaleDateString(),
+      updatedBy: payment.recordedByName,
+    }));
+    const columns = [
+      { key: 'tenantName', label: 'Resident', accessor: (row: (typeof exportRows)[number]) => row.tenantName },
+      { key: 'roomNumber', label: 'Room', accessor: (row: (typeof exportRows)[number]) => `Room ${row.roomNumber}` },
+      { key: 'invoicePeriod', label: 'Invoice Period', accessor: (row: (typeof exportRows)[number]) => row.invoicePeriod },
+      { key: 'amount', label: 'Amount', accessor: (row: (typeof exportRows)[number]) => row.amount },
+      { key: 'status', label: 'Status', accessor: (row: (typeof exportRows)[number]) => row.status },
+      { key: 'methodLabel', label: 'Method', accessor: (row: (typeof exportRows)[number]) => row.methodLabel },
+      { key: 'reference', label: 'Reference', accessor: (row: (typeof exportRows)[number]) => row.reference },
+      { key: 'updatedAt', label: 'Updated', accessor: (row: (typeof exportRows)[number]) => row.updatedAt },
+      { key: 'updatedBy', label: 'Updated By', accessor: (row: (typeof exportRows)[number]) => row.updatedBy },
+    ];
+
+    if (format === 'csv') {
+      exportRowsToCsv(
+        `${(currentDorm?.name ?? 'dorm').toLowerCase().replace(/\s+/g, '-')}-payments.csv`,
+        exportRows,
+        columns,
+      );
+      toast.success('Payment CSV exported');
+    } else {
+      openPrintableExport({
+        title: `${currentDorm?.name ?? 'Dorm'} payment export`,
+        subtitle: 'Recent payment activity currently visible in the dashboard',
+        rows: exportRows,
+        columns,
+      });
+      toast.success('Payment print view opened');
+    }
+
+    setShowExportDialog(false);
+  }
 
   return (
     <div className="space-y-6">
@@ -99,15 +146,15 @@ export default function PaymentsClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Payments</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            {currentDorm?.name ?? 'Dorm'} payment collection overview
+            {currentDorm?.name ?? 'Dorm'} · review recorded payments for this dorm
           </p>
         </div>
         <button
-          onClick={() => toast.info('Export payment report coming soon')}
+          onClick={() => setShowExportDialog(true)}
           className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--foreground))] bg-white border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
         >
           <TrendingUp size={15} />
-          Export Report
+          Export
         </button>
       </div>
 
@@ -120,7 +167,7 @@ export default function PaymentsClient() {
             </span>
           </div>
           <p className="text-3xl font-700">${paymentSummary.netCollectedAmount.toLocaleString()}</p>
-          <p className="text-[13px] opacity-70 mt-1">Net collected from recorded payments</p>
+          <p className="text-[13px] opacity-70 mt-1">Confirmed payments on record</p>
         </div>
         <div className="bg-red-50 border border-red-200 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -139,13 +186,14 @@ export default function PaymentsClient() {
           </div>
           <p className="text-3xl font-700 text-green-800">{paymentSummary.collectionRate}%</p>
           <p className="text-[12px] text-green-600 mt-1">
-            {paymentSummary.pendingPaymentCount} pending review · {paymentSummary.failedPaymentCount} rejected attempts
+            {paymentSummary.pendingPaymentCount} pending review · {paymentSummary.failedPaymentCount} rejected payments
           </p>
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
-        <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))] mb-5">6-Month Payment Activity</h2>
+        <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))] mb-5">Payment Activity (6 months)</h2>
+        <p className="mb-5 text-[13px] text-[hsl(var(--muted-foreground))]">Recorded payments by status</p>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={trendData} barSize={16} barGap={4}>
@@ -163,7 +211,7 @@ export default function PaymentsClient() {
       </div>
 
       <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
-        <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))] mb-4">Payment History</h2>
+        <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))] mb-4">Recent Payments</h2>
         <div className="space-y-2">
           {recentPayments.map((payment) => {
             const meta = paymentStatusMeta[payment.status];
@@ -245,6 +293,13 @@ export default function PaymentsClient() {
           )}
         </div>
       </div>
+      <ExportDialog
+        description="Export the recent payment activity shown on this page as CSV or a print view."
+        isOpen={showExportDialog}
+        onClose={() => setShowExportDialog(false)}
+        onExport={handleExport}
+        title="Export payments"
+      />
     </div>
   );
 }

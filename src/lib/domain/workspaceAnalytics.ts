@@ -9,6 +9,11 @@ import type {
   WorkspaceTenantRecord,
 } from "@/lib/demoWorkspace";
 import {
+  countEnabledMealSelections,
+  deriveMealPlanFromSelections,
+  normalizeMealSelections,
+} from "@/lib/demoWorkspace";
+import {
   buildPaymentSummary,
   buildPaymentTrendData,
   type PaymentSummary,
@@ -106,19 +111,13 @@ const MEAL_PLAN_COLORS: Record<string, string> = {
   "Breakfast Only": "#60a5fa",
   "Half Board": "#34d399",
   "Full Board": "hsl(var(--primary))",
+  "Custom Schedule": "#f59e0b",
 };
 
 const MEAL_STATUS_COLORS: Record<MealItemRecord["status"], string> = {
   Planned: "#60a5fa",
   "In Prep": "#f59e0b",
   Served: "#22c55e",
-};
-
-const MEAL_PLAN_DAILY_DEMAND: Record<string, number> = {
-  "No Meal Plan": 0,
-  "Breakfast Only": 1,
-  "Half Board": 2,
-  "Full Board": 3,
 };
 
 function parseDateValue(value: string | undefined) {
@@ -314,23 +313,40 @@ function buildMealDemandAnalytics(params: {
       .filter((tenant) => tenant.status === "Active")
       .map((tenant) => tenant.id),
   );
-  const relevantPreferences = params.preferences.filter((preference) =>
-    activeTenantIds.has(preference.tenantId),
-  );
+  const relevantPreferences = params.preferences
+    .filter((preference) => activeTenantIds.has(preference.tenantId))
+    .map((preference) => {
+      const selections = normalizeMealSelections(preference);
+      return {
+        ...preference,
+        selections,
+        resolvedPlan: deriveMealPlanFromSelections(selections),
+        selectedMealCount: countEnabledMealSelections(selections),
+      };
+    });
   const planBreakdown = (
-    ["No Meal Plan", "Breakfast Only", "Half Board", "Full Board"] as const
+    [
+      "No Meal Plan",
+      "Breakfast Only",
+      "Half Board",
+      "Full Board",
+      "Custom Schedule",
+    ] as const
   ).map((plan) => ({
     name: plan,
-    value: relevantPreferences.filter((preference) => preference.plan === plan).length,
+    value: relevantPreferences.filter(
+      (preference) => preference.resolvedPlan === plan,
+    ).length,
     fill: MEAL_PLAN_COLORS[plan],
   }));
-  const activeSubscribers = planBreakdown
-    .filter((entry) => entry.name !== "No Meal Plan")
-    .reduce((sum, entry) => sum + entry.value, 0);
-  const projectedDailyMeals = planBreakdown.reduce(
-    (sum, entry) => sum + entry.value * MEAL_PLAN_DAILY_DEMAND[entry.name],
+  const activeSubscribers = relevantPreferences.filter(
+    (preference) => preference.selectedMealCount > 0,
+  ).length;
+  const projectedWeeklyMeals = relevantPreferences.reduce(
+    (sum, preference) => sum + preference.selectedMealCount,
     0,
   );
+  const projectedDailyMeals = Math.round(projectedWeeklyMeals / 7);
   const scheduledServings = params.mealItems.reduce(
     (sum, meal) => sum + meal.servings,
     0,
@@ -342,8 +358,8 @@ function buildMealDemandAnalytics(params: {
     projectedDailyMeals,
     scheduledServings,
     coverageRate:
-      projectedDailyMeals > 0
-        ? Math.round((scheduledServings / projectedDailyMeals) * 100)
+      projectedWeeklyMeals > 0
+        ? Math.round((scheduledServings / projectedWeeklyMeals) * 100)
         : 0,
     servedMeals: params.mealItems.filter((meal) => meal.status === "Served").length,
     inPrepMeals: params.mealItems.filter((meal) => meal.status === "In Prep").length,

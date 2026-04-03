@@ -82,7 +82,6 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
     }
   }, [room, reset]);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
@@ -91,7 +90,6 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
 
   async function onSubmit(data: FormValues) {
     setSaving(true);
-    // BACKEND INTEGRATION: POST /api/rooms or PUT /api/rooms/:id
     await new Promise(r => setTimeout(r, 800));
     const amenitiesArr = data.amenities.split(',').map(a => a.trim()).filter(Boolean);
     const saved: Room = {
@@ -120,10 +118,10 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
         <div className="sticky top-0 bg-white rounded-t-2xl flex items-center justify-between px-6 py-4 border-b border-[hsl(var(--border))] z-10">
           <div>
             <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">
-              {isEdit ? `Edit Room #${room?.roomNumber}` : 'Add New Room'}
+              {isEdit ? `Edit Room ${room?.roomNumber}` : 'Add Room'}
             </h2>
             <p className="text-[12px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              {isEdit ? 'Update room details and configuration' : 'Define room capacity, rent, and availability'}
+              {isEdit ? 'Update room details, price, and status' : 'Add a room and set its price and status'}
             </p>
           </div>
           <button
@@ -136,7 +134,7 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit(onSubmit)} className="px-6 py-5 space-y-5">
+        <form id="add-room-form" onSubmit={handleSubmit(onSubmit)} className="px-6 py-5 space-y-5">
           {/* Room Number + Type */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
@@ -211,7 +209,7 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
           {/* Rent per Month */}
           <div className="space-y-1.5">
             <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">
-              Rent per Month (USD) <span className="text-red-500">*</span>
+              Monthly Rent (USD) <span className="text-red-500">*</span>
             </label>
             <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Base rent charged per occupant per month</p>
             <div className="relative">
@@ -233,14 +231,14 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
           {/* Status */}
           <div className="space-y-1.5">
             <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">
-              Initial Status <span className="text-red-500">*</span>
+              Room Status <span className="text-red-500">*</span>
             </label>
             <Controller
               name="status"
               control={control}
               render={({ field }) => (
                 <AppSelect
-                  ariaLabel="Initial room status"
+                  ariaLabel="Room status"
                   fullWidth
                   value={field.value}
                   options={roomStatusOptions}
@@ -263,12 +261,12 @@ export default function AddRoomModal({ room, onClose, onSave }: AddRoomModalProp
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Internal Notes</label>
-            <p className="text-[12px] text-[hsl(var(--muted-foreground))]">Visible only to admins — not shown to tenants</p>
+            <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Room Notes</label>
+            <p className="text-[12px] text-[hsl(var(--muted-foreground))]">This note appears anywhere room details are shown.</p>
             <textarea
               {...register('notes')}
               rows={3}
-              placeholder="Any notes about this room..."
+              placeholder="Optional notes about this room"
               className="w-full px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] placeholder:text-[hsl(var(--muted-foreground))]"
             />
           </div>

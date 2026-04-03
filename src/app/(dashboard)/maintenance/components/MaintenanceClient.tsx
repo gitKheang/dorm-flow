@@ -3,10 +3,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Plus, Search, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
+import MaintenanceAttachmentField, { MaintenanceAttachmentList } from '@/components/maintenance/MaintenanceAttachmentField';
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AppSelect from '@/components/ui/AppSelect';
 import {
+  MaintenanceAttachment,
   MaintenancePriority,
   MaintenanceStatus,
 } from '@/lib/mockData';
@@ -79,6 +81,7 @@ function AdminMaintenanceComposer({
   const [category, setCategory] = useState('Plumbing');
   const [priority, setPriority] = useState<MaintenancePriority>('Medium');
   const [description, setDescription] = useState('');
+  const [attachments, setAttachments] = useState<MaintenanceAttachment[]>([]);
 
   const roomOptions = useMemo(() => rooms.map((room) => ({
     value: room.id,
@@ -120,6 +123,7 @@ function AdminMaintenanceComposer({
     setCategory('Plumbing');
     setPriority('Medium');
     setDescription('');
+    setAttachments([]);
   }
 
   function handleSubmit(event: React.FormEvent) {
@@ -147,6 +151,7 @@ function AdminMaintenanceComposer({
         description: description.trim() || 'No extra details provided.',
         category,
         priority,
+        attachments,
       });
       toast.success(`Ticket created for Room ${selectedRoom.roomNumber}`);
       resetForm();
@@ -165,13 +170,13 @@ function AdminMaintenanceComposer({
     <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-[hsl(var(--border))] p-6 space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Create a maintenance ticket</h2>
+          <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">New Maintenance Ticket</h2>
           <p className="mt-1 text-[13px] text-[hsl(var(--muted-foreground))]">
-            Log a dorm issue, assign it to a room, and optionally link it to a resident.
+            Log an issue, choose a room, and optionally link it to a resident.
           </p>
         </div>
         <span className="rounded-full bg-[hsl(var(--muted))] px-3 py-1 text-[12px] font-medium text-[hsl(var(--muted-foreground))]">
-          Admin workflow
+          Staff view
         </span>
       </div>
 
@@ -264,6 +269,11 @@ function AdminMaintenanceComposer({
         />
       </div>
 
+      <MaintenanceAttachmentField
+        attachments={attachments}
+        onChange={setAttachments}
+      />
+
       <div className="flex gap-2">
         <button
           type="submit"
@@ -305,6 +315,7 @@ function TenantMaintenanceView({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Plumbing');
+  const [attachments, setAttachments] = useState<MaintenanceAttachment[]>([]);
 
   const myTickets = tickets.filter((ticket) => (
     tenantId
@@ -328,12 +339,14 @@ function TenantMaintenanceView({
         description: description.trim() || 'No extra details provided.',
         category,
         priority: 'Medium',
+        attachments,
       });
 
       toast.success('Maintenance request submitted');
       setTitle('');
       setDescription('');
       setCategory('Plumbing');
+      setAttachments([]);
       setShowForm(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to submit the maintenance request.';
@@ -347,7 +360,7 @@ function TenantMaintenanceView({
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">My Maintenance Requests</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            {roomNumber ? `Tracking issues for Room ${roomNumber}` : 'Track issues submitted for your room'}
+            {roomNumber ? `Issues for Room ${roomNumber}` : 'Issues submitted for your room'}
           </p>
         </div>
         <button
@@ -355,7 +368,7 @@ function TenantMaintenanceView({
           className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors"
         >
           <Plus size={15} />
-          {showForm ? 'Close Form' : 'New Request'}
+          {showForm ? 'Close form' : 'New request'}
         </button>
       </div>
 
@@ -380,9 +393,9 @@ function TenantMaintenanceView({
       {showForm && (
         <form onSubmit={handleSubmitRequest} className="bg-white rounded-xl border border-[hsl(var(--border))] p-6 space-y-4">
           <div>
-            <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">Submit a new issue</h2>
+            <h2 className="text-[15px] font-semibold text-[hsl(var(--foreground))]">New Maintenance Request</h2>
             <p className="mt-1 text-[13px] text-[hsl(var(--muted-foreground))]">
-              Include enough detail so the dorm team can triage it quickly.
+              Describe the issue so the dorm team can review it.
             </p>
           </div>
           <div className="space-y-1.5">
@@ -416,16 +429,23 @@ function TenantMaintenanceView({
               className="w-full px-3 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] resize-none"
             />
           </div>
+          <MaintenanceAttachmentField
+            attachments={attachments}
+            onChange={setAttachments}
+          />
           <div className="flex gap-2">
             <button
               type="submit"
               className="px-4 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors"
             >
-              Submit Request
+              Send request
             </button>
             <button
               type="button"
-              onClick={() => setShowForm(false)}
+              onClick={() => {
+                setShowForm(false);
+                setAttachments([]);
+              }}
               className="px-4 py-2.5 text-[13px] font-medium text-[hsl(var(--muted-foreground))] bg-white border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
             >
               Cancel
@@ -454,6 +474,14 @@ function TenantMaintenanceView({
                   <span>Submitted {ticket.submittedDate}</span>
                   <span>Updated {ticket.updatedDate}</span>
                 </div>
+                {ticket.attachments && ticket.attachments.length > 0 && (
+                  <div className="mt-3">
+                    <p className="mb-2 text-[12px] font-medium text-[hsl(var(--muted-foreground))]">
+                      Attachments
+                    </p>
+                    <MaintenanceAttachmentList attachments={ticket.attachments} />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -540,7 +568,7 @@ export default function MaintenanceClient() {
         <div>
           <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Maintenance</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-            {currentDorm?.name ?? 'Dorm'} · {tickets.length} total tickets
+            {currentDorm?.name ?? 'Dorm'} · {tickets.length} requests on file
           </p>
         </div>
         <button
@@ -550,7 +578,7 @@ export default function MaintenanceClient() {
           className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Plus size={15} />
-          {showCreateForm ? 'Close Form' : 'New Ticket'}
+          {showCreateForm ? 'Close form' : 'New ticket'}
         </button>
       </div>
 
@@ -597,7 +625,7 @@ export default function MaintenanceClient() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search tickets..."
+            placeholder="Search by title, room, or resident..."
             className="w-full pl-9 pr-4 py-2.5 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]"
           />
         </div>
@@ -642,6 +670,14 @@ export default function MaintenanceClient() {
                     <span className="text-[hsl(var(--muted-foreground))]">·</span>
                     <span className="text-[12px] text-[hsl(var(--muted-foreground))]">Submitted {ticket.submittedDate}</span>
                   </div>
+                  {ticket.attachments && ticket.attachments.length > 0 && (
+                    <div className="mt-3">
+                      <p className="mb-2 text-[12px] font-medium text-[hsl(var(--muted-foreground))]">
+                        Attachments
+                      </p>
+                      <MaintenanceAttachmentList attachments={ticket.attachments} />
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
@@ -660,7 +696,7 @@ export default function MaintenanceClient() {
         {filtered.length === 0 && (
           <div className="text-center py-12 bg-white rounded-xl border border-[hsl(var(--border))]">
             <Wrench size={32} className="text-[hsl(var(--muted-foreground))] mx-auto mb-2 opacity-40" />
-            <p className="text-[14px] text-[hsl(var(--muted-foreground))]">No tickets found</p>
+            <p className="text-[14px] text-[hsl(var(--muted-foreground))]">No maintenance requests match this filter</p>
           </div>
         )}
       </div>

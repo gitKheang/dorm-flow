@@ -1,19 +1,22 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { BedDouble, CreditCard, Wrench, CheckCircle2, AlertTriangle, ChevronRight, Plus, Home, Wifi, Wind, Bath, UtensilsCrossed } from 'lucide-react';
+import MaintenanceAttachmentField, { MaintenanceAttachmentList } from '@/components/maintenance/MaintenanceAttachmentField';
+import TenantMealScheduleEditor from '@/components/meals/TenantMealScheduleEditor';
 import { useDemoSession } from '@/components/DemoSessionProvider';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
 import AppSelect from '@/components/ui/AppSelect';
 import { getLatestInvoicePayment } from '@/lib/domain/paymentAnalytics';
+import {
+  buildMealScheduleWindow,
+  countEnabledMealSelections,
+  deriveMealPlanFromSelections,
+  normalizeMealSelections,
+  type TenantMealSelection,
+} from '@/lib/demoWorkspace';
+import type { MaintenanceAttachment } from '@/lib/mockData';
 import { toast } from 'sonner';
-
-const mealPlanOptions = [
-  { value: 'No Meal Plan', label: 'No Meal Plan' },
-  { value: 'Breakfast Only', label: 'Breakfast Only' },
-  { value: 'Half Board', label: 'Half Board' },
-  { value: 'Full Board', label: 'Full Board' },
-];
 
 export default function TenantDashboardPage() {
   const { session } = useDemoSession();
@@ -21,6 +24,7 @@ export default function TenantDashboardPage() {
     addMaintenanceTicket,
     currentDorm,
     currentDormInvoices,
+    currentDormMeals,
     currentDormMaintenanceTickets,
     currentDormRooms,
     getPremiumFeatureAccess,
@@ -47,8 +51,45 @@ export default function TenantDashboardPage() {
   const [requestTitle, setRequestTitle] = useState('');
   const [requestDesc, setRequestDesc] = useState('');
   const [requestCategory, setRequestCategory] = useState('Plumbing');
-  const [mealPlan, setMealPlan] = useState(currentMealPreference?.plan ?? 'No Meal Plan');
+  const [requestAttachments, setRequestAttachments] = useState<MaintenanceAttachment[]>([]);
+  const [mealSelections, setMealSelections] = useState<TenantMealSelection[]>(
+    normalizeMealSelections(currentMealPreference),
+  );
   const [mealNotes, setMealNotes] = useState(currentMealPreference?.notes ?? '');
+  const mealSchedule = buildMealScheduleWindow();
+  const mealPlanLabel = deriveMealPlanFromSelections(mealSelections);
+  const selectedMealCount = countEnabledMealSelections(mealSelections);
+  const mealDayOrder = useMemo(
+    () =>
+      mealSchedule.reduce<Record<string, number>>((order, day, index) => {
+        order[day.dayLabel] = index;
+        return order;
+      }, {}),
+    [mealSchedule],
+  );
+  const mealCategoryOrder: Record<string, number> = {
+    Breakfast: 0,
+    Lunch: 1,
+    Dinner: 2,
+    Snack: 3,
+  };
+  const upcomingKitchenMeals = useMemo(
+    () =>
+      currentDormMeals
+        .filter((meal) => meal.day in mealDayOrder)
+        .sort((left, right) => {
+          const dayDelta = (mealDayOrder[left.day] ?? Number.MAX_SAFE_INTEGER)
+            - (mealDayOrder[right.day] ?? Number.MAX_SAFE_INTEGER);
+          if (dayDelta !== 0) {
+            return dayDelta;
+          }
+
+          return (mealCategoryOrder[left.category] ?? 99)
+            - (mealCategoryOrder[right.category] ?? 99);
+        })
+        .slice(0, 6),
+    [currentDormMeals, mealDayOrder],
+  );
 
   const overdueInvoice = invoices.find(i => i.status === 'Overdue');
   const pendingInvoice = invoices.find(i => i.status === 'Issued');
@@ -81,11 +122,13 @@ export default function TenantDashboardPage() {
         description: requestDesc.trim() || 'No extra details provided.',
         category: requestCategory,
         priority: 'Medium',
+        attachments: requestAttachments,
       });
-      toast.success('Maintenance request submitted! We\'ll respond within 24 hours.');
+      toast.success('Maintenance request submitted.');
       setRequestTitle('');
       setRequestDesc('');
       setRequestCategory('Plumbing');
+      setRequestAttachments([]);
       setShowRequestForm(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to submit the maintenance request.';
@@ -94,17 +137,24 @@ export default function TenantDashboardPage() {
   }
 
   useEffect(() => {
-    setMealPlan(currentMealPreference?.plan ?? 'No Meal Plan');
+    setMealSelections(normalizeMealSelections(currentMealPreference));
     setMealNotes(currentMealPreference?.notes ?? '');
   }, [currentMealPreference]);
+
+  function handleToggleMealSelection(selectionId: string) {
+    setMealSelections((currentSelections) => currentSelections.map((selection) => (
+      selection.id === selectionId ? { ...selection, enabled: !selection.enabled } : selection
+    )));
+  }
 
   function handleSaveMealPlan() {
     try {
       setTenantMealPreference(currentTenantId, {
-        plan: mealPlan as 'No Meal Plan' | 'Breakfast Only' | 'Half Board' | 'Full Board',
+        plan: mealPlanLabel,
         notes: mealNotes.trim(),
+        selections: mealSelections,
       });
-      toast.success('Meal preference updated');
+      toast.success('Meal plan saved');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to update the meal preference.';
       toast.error(message);
@@ -123,6 +173,11 @@ export default function TenantDashboardPage() {
     'In Progress': 'bg-amber-100 text-amber-700',
     Resolved: 'bg-green-100 text-green-700',
   };
+  const mealStatusColors: Record<string, string> = {
+    Planned: 'bg-blue-100 text-blue-700',
+    'In Prep': 'bg-amber-100 text-amber-700',
+    Served: 'bg-green-100 text-green-700',
+  };
 
   return (
     
@@ -134,7 +189,7 @@ export default function TenantDashboardPage() {
               Welcome back, {tenant?.name?.split(' ')[0]}
             </h1>
             <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
-              Tenant Portal — {session?.dormName ?? 'Sunrise Dormitory'}
+              Resident Portal — {session?.dormName ?? 'Sunrise Dormitory'}
             </p>
           </div>
           {overdueInvoice && (
@@ -173,7 +228,7 @@ export default function TenantDashboardPage() {
                 <CreditCard size={16} className="text-green-600" />
               </div>
               <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${actionableInvoice ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                {actionableInvoice ? 'Due soon' : 'All paid'}
+                {actionableInvoice ? 'Payment needed' : 'Up to date'}
               </span>
             </div>
             <p className="text-2xl font-700 text-[hsl(var(--foreground))]">
@@ -266,7 +321,7 @@ export default function TenantDashboardPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">My Invoices</h2>
               <Link href="/invoices" className="text-[12px] text-[hsl(var(--primary))] font-medium hover:underline flex items-center gap-1">
-                View all <ChevronRight size={12} />
+                Open invoices <ChevronRight size={12} />
               </Link>
             </div>
             <div className="space-y-2">
@@ -315,7 +370,7 @@ export default function TenantDashboardPage() {
                 <CreditCard size={15} />
                 {actionableInvoicePendingReview
                   ? 'Payment under review'
-                  : `Submit $${actionableInvoice.amount} for review`}
+                  : `Submit $${actionableInvoice.amount} payment`}
               </button>
             )}
           </div>
@@ -332,7 +387,7 @@ export default function TenantDashboardPage() {
                 }`}
               >
                 <Plus size={13} />
-                New Request
+                New request
               </button>
             </div>
 
@@ -364,11 +419,23 @@ export default function TenantDashboardPage() {
                   rows={2}
                   className="w-full px-3 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] resize-none"
                 />
+                <MaintenanceAttachmentField
+                  attachments={requestAttachments}
+                  onChange={setRequestAttachments}
+                  helperText="Attach photos or supporting files before you submit the request."
+                />
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 py-2 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors">
-                    Submit
+                    Send request
                   </button>
-                  <button type="button" onClick={() => setShowRequestForm(false)} className="px-4 py-2 text-[13px] font-medium text-[hsl(var(--muted-foreground))] bg-white border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRequestForm(false);
+                      setRequestAttachments([]);
+                    }}
+                    className="px-4 py-2 text-[13px] font-medium text-[hsl(var(--muted-foreground))] bg-white border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -377,7 +444,7 @@ export default function TenantDashboardPage() {
 
             <div className="space-y-2">
               {tickets.length === 0 && (
-                <p className="text-[13px] text-[hsl(var(--muted-foreground))] text-center py-6">No requests submitted</p>
+                <p className="text-[13px] text-[hsl(var(--muted-foreground))] text-center py-6">No requests yet</p>
               )}
               {tickets.map(t => (
                 <div key={t.id} className="p-3 rounded-lg border border-[hsl(var(--border))]">
@@ -392,6 +459,11 @@ export default function TenantDashboardPage() {
                     <span className="text-[hsl(var(--muted-foreground))]">·</span>
                     <span className="text-[12px] text-[hsl(var(--muted-foreground))]">{t.submittedDate}</span>
                   </div>
+                  {t.attachments && t.attachments.length > 0 && (
+                    <div className="mt-3">
+                      <MaintenanceAttachmentList attachments={t.attachments} />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -420,13 +492,13 @@ export default function TenantDashboardPage() {
             <div>
               <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Meal Service</h2>
               <p className="mt-0.5 text-[13px] text-[hsl(var(--muted-foreground))]">
-                Set the meal plan the kitchen team should prepare for your stay.
+                Choose meals for the next 7 days.
               </p>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-              mealPlan === 'No Meal Plan' ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-700'
+              mealPlanLabel === 'No Meal Plan' ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-700'
             }`}>
-              {mealPlan}
+              {mealPlanLabel}
             </span>
           </div>
 
@@ -434,44 +506,69 @@ export default function TenantDashboardPage() {
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
               <p className="text-[13px] font-medium text-amber-900">
                 {mealPreferenceAccess?.reason === 'plan'
-                  ? 'Meal preferences depend on the dorm owner Premium plan.'
-                  : 'Meal service is currently paused by the dorm owner.'}
+                  ? 'Meal service requires Premium for this dorm.'
+                  : 'Meal service is turned off for this dorm.'}
               </p>
               <p className="mt-1 text-[12px] text-amber-800">
                 {mealPreferenceAccess?.reason === 'plan'
-                  ? 'You never pay for DormFlow yourself. This section unlocks when the dorm owner upgrades this dorm and enables meal service.'
-                  : 'Your saved preference stays on file, but updates are locked until the meal-service module is turned back on.'}
+                  ? 'Your saved selections stay on file until meal service is enabled.'
+                  : 'Your saved selections stay on file until meal service is turned back on.'}
               </p>
             </div>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Meal plan</label>
-              <AppSelect
-                ariaLabel="Tenant meal plan"
-                fullWidth
-                disabled={!mealServiceEnabled}
-                value={mealPlan}
-                options={mealPlanOptions}
-                onChange={(value) => setMealPlan(value as 'No Meal Plan' | 'Breakfast Only' | 'Half Board' | 'Full Board')}
-              />
+          <TenantMealScheduleEditor
+            disabled={!mealServiceEnabled}
+            notes={mealNotes}
+            onNotesChange={setMealNotes}
+            onToggleSelection={handleToggleMealSelection}
+            schedule={mealSchedule}
+            selections={mealSelections}
+          />
+
+          <div className="rounded-xl border border-[hsl(var(--border))] bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">
+                Kitchen schedule
+              </p>
+              <span className="text-[12px] text-[hsl(var(--muted-foreground))]">
+                Shared updates from the kitchen team
+              </span>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-[hsl(var(--foreground))]">Notes for kitchen team</label>
-              <textarea
-                value={mealNotes}
-                onChange={(event) => setMealNotes(event.target.value)}
-                rows={3}
-                disabled={!mealServiceEnabled}
-                placeholder="Add dietary preferences, preferred service windows, or anything the chef should know."
-                className={`w-full rounded-lg border border-[hsl(var(--border))] px-3 py-2.5 text-[13px] resize-none ${
-                  mealServiceEnabled
-                    ? 'bg-white focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)]'
-                    : 'bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'
-                }`}
-              />
+            <div className="mt-3 space-y-2">
+              {upcomingKitchenMeals.length === 0 && (
+                <p className="text-[12px] text-[hsl(var(--muted-foreground))]">
+                  No meals are scheduled yet for the next 7 days.
+                </p>
+              )}
+              {upcomingKitchenMeals.map((meal) => (
+                <div
+                  key={meal.id}
+                  className="flex flex-col gap-2 rounded-lg border border-[hsl(var(--border))] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">
+                      {meal.name}
+                    </p>
+                    <p className="mt-0.5 text-[12px] text-[hsl(var(--muted-foreground))]">
+                      {meal.day} · {meal.category} · {meal.servings} servings
+                    </p>
+                  </div>
+                  <span className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${mealStatusColors[meal.status]}`}>
+                    {meal.status}
+                  </span>
+                </div>
+              ))}
             </div>
+          </div>
+
+          <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.35)] px-4 py-3">
+            <p className="text-[13px] font-medium text-[hsl(var(--foreground))]">
+              {selectedMealCount} meal slot{selectedMealCount === 1 ? '' : 's'} currently selected
+            </p>
+            <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">
+              The kitchen team sees demand counts from this schedule. Locked cells are already past their change cutoff.
+            </p>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
             <button
@@ -484,12 +581,12 @@ export default function TenantDashboardPage() {
                   : 'cursor-not-allowed bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]'
               }`}
             >
-              {mealServiceEnabled ? 'Save Meal Preference' : 'Locked by dorm plan'}
+              {mealServiceEnabled ? 'Save Meal Plan' : 'Locked by dorm plan'}
             </button>
             <p className="text-[12px] text-[hsl(var(--muted-foreground))]">
               {mealServiceEnabled
-                ? 'Changes appear in the chef workspace immediately.'
-                : 'Your current preference stays stored and will be available again once access is restored.'}
+                ? 'Saved changes update the kitchen schedule for upcoming meals.'
+                : 'Your current selection stays saved until access is restored.'}
             </p>
           </div>
         </div>

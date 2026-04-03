@@ -45,7 +45,7 @@ export default function PaymentChart({ data }: { data: PaymentTrendPoint[] }) {
     <div className="bg-white rounded-xl border border-[hsl(var(--border))] p-6">
       <div className="mb-6">
         <h2 className="text-[16px] font-semibold text-[hsl(var(--foreground))]">Payment Activity</h2>
-        <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">Monthly payment attempts by status</p>
+        <p className="text-[13px] text-[hsl(var(--muted-foreground))] mt-0.5">Recorded payments by status</p>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={10}>

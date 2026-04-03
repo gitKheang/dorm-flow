@@ -2,9 +2,11 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, Search, SlidersHorizontal, Download, Trash2, Edit2, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+import ExportDialog from '@/components/ui/ExportDialog';
 import AppSelect from '@/components/ui/AppSelect';
 import { Room, RoomStatus, RoomType } from '@/lib/mockData';
 import { useDemoWorkspace } from '@/components/DemoWorkspaceProvider';
+import { exportRowsToCsv, openPrintableExport } from '@/lib/export';
 import AddRoomModal from './AddRoomModal';
 import RoomStatusBadge from './RoomStatusBadge';
 
@@ -34,6 +36,7 @@ export default function RoomManagementClient() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   const rooms = currentDormRooms;
   const floors = useMemo(() => [...new Set(currentDormRooms.map((room) => room.floor))].sort((a, b) => a - b), [currentDormRooms]);
@@ -84,7 +87,7 @@ export default function RoomManagementClient() {
 
   function handleBulkDelete() {
     if (selectedIds.size > 1) {
-      toast.info('Bulk room deletion is disabled. Review each room individually before removal so resident, maintenance, and billing history stay safe.');
+      toast.info('Delete rooms one at a time so resident, maintenance, and billing records stay accurate.');
       return;
     }
 
@@ -175,19 +178,63 @@ export default function RoomManagementClient() {
     [],
   );
 
+  function handleExport(format: 'csv' | 'pdf') {
+    const exportRows = filtered.map((room) => ({
+      roomNumber: room.roomNumber,
+      type: room.type,
+      floor: room.floor,
+      capacity: room.capacity,
+      occupants: room.occupants,
+      rentPerMonth: room.rentPerMonth,
+      status: room.status,
+      assignedTenants: room.assignedTenants.join(', ') || 'No residents assigned',
+      lastUpdated: room.lastUpdated,
+    }));
+    const columns = [
+      { key: 'roomNumber', label: 'Room', accessor: (row: (typeof exportRows)[number]) => row.roomNumber },
+      { key: 'type', label: 'Type', accessor: (row: (typeof exportRows)[number]) => row.type },
+      { key: 'floor', label: 'Floor', accessor: (row: (typeof exportRows)[number]) => row.floor },
+      { key: 'capacity', label: 'Capacity', accessor: (row: (typeof exportRows)[number]) => row.capacity },
+      { key: 'occupants', label: 'Occupants', accessor: (row: (typeof exportRows)[number]) => row.occupants },
+      { key: 'rentPerMonth', label: 'Rent / Month', accessor: (row: (typeof exportRows)[number]) => row.rentPerMonth },
+      { key: 'status', label: 'Status', accessor: (row: (typeof exportRows)[number]) => row.status },
+      { key: 'assignedTenants', label: 'Assigned Residents', accessor: (row: (typeof exportRows)[number]) => row.assignedTenants },
+      { key: 'lastUpdated', label: 'Last Updated', accessor: (row: (typeof exportRows)[number]) => row.lastUpdated },
+    ];
+
+    if (format === 'csv') {
+      exportRowsToCsv(
+        `${(currentDorm?.name ?? 'dorm').toLowerCase().replace(/\s+/g, '-')}-rooms.csv`,
+        exportRows,
+        columns,
+      );
+      toast.success('Room CSV exported');
+    } else {
+      openPrintableExport({
+        title: `${currentDorm?.name ?? 'Dorm'} room export`,
+        subtitle: 'Room records currently shown on this page',
+        rows: exportRows,
+        columns,
+      });
+      toast.success('Room print view opened');
+    }
+
+    setShowExportDialog(false);
+  }
+
   return (
     <div className="space-y-6">
       {/* Page header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Room Management</h1>
+          <h1 className="text-2xl font-semibold text-[hsl(var(--foreground))]">Rooms</h1>
           <p className="text-[14px] text-[hsl(var(--muted-foreground))] mt-0.5">
             {currentDorm?.name ?? 'Dorm'} · {rooms.length} rooms · {statusCounts.Occupied} occupied · {statusCounts.Available} available
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => toast.info('Export feature coming soon')}
+            onClick={() => setShowExportDialog(true)}
             className="flex items-center gap-2 px-3 py-2 text-[13px] font-medium text-[hsl(var(--muted-foreground))] border border-[hsl(var(--border))] rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
           >
             <Download size={15} />
@@ -231,7 +278,7 @@ export default function RoomManagementClient() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--muted-foreground))]" />
           <input
             type="text"
-            placeholder="Search rooms, tenants..."
+            placeholder="Search rooms or residents..."
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
             className="w-full pl-9 pr-4 py-2 text-[13px] border border-[hsl(var(--border))] rounded-lg bg-white placeholder:text-[hsl(var(--muted-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.3)] focus:border-[hsl(var(--primary))]"
@@ -332,9 +379,9 @@ export default function RoomManagementClient() {
                   { key: 'floor', label: 'Floor' },
                   { key: 'capacity', label: 'Capacity' },
                   { key: 'occupants', label: 'Occupants' },
-                  { key: 'rentPerMonth', label: 'Rent/Mo' },
+                  { key: 'rentPerMonth', label: 'Rent / Month' },
                   { key: 'status', label: 'Status' },
-                  { key: 'assignedTenants', label: 'Assigned Tenants' },
+                  { key: 'assignedTenants', label: 'Assigned Residents' },
                   { key: 'lastUpdated', label: 'Last Updated' },
                 ].map(col => (
                   <th
@@ -363,13 +410,13 @@ export default function RoomManagementClient() {
                       </div>
                       <p className="text-[15px] font-semibold text-[hsl(var(--foreground))]">No rooms found</p>
                       <p className="text-[13px] text-[hsl(var(--muted-foreground))]">
-                        Try adjusting your search or filters, or add a new room.
+                        Try a different search or filter, or add a room.
                       </p>
                       <button
                         onClick={() => setShowAddModal(true)}
                         className="mt-1 px-4 py-2 text-[13px] font-medium text-white bg-[hsl(var(--primary))] rounded-lg hover:bg-[hsl(var(--primary)/0.9)] transition-colors"
                       >
-                        Add First Room
+                        Add Room
                       </button>
                     </div>
                   </td>
@@ -433,7 +480,7 @@ export default function RoomManagementClient() {
                     </td>
                     <td className="px-4 py-3 max-w-[180px]">
                       {room.assignedTenants.length === 0 ? (
-                        <span className="text-[12px] text-[hsl(var(--muted-foreground))] italic">Unoccupied</span>
+                        <span className="text-[12px] text-[hsl(var(--muted-foreground))] italic">No residents assigned</span>
                       ) : (
                         <div className="flex flex-col gap-0.5">
                           {room.assignedTenants.slice(0, 2).map((t, ti) => (
@@ -451,8 +498,8 @@ export default function RoomManagementClient() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => toast.info(`Viewing room ${room.roomNumber} details`)}
-                          title={`View room ${room.roomNumber} details`}
+                          onClick={() => toast.info(`Room ${room.roomNumber} · ${room.occupants}/${room.capacity} occupied · ${room.status}`)}
+                          title={`Quick summary for room ${room.roomNumber}`}
                           className="p-1.5 rounded-lg hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
                         >
                           <Eye size={14} />
@@ -545,6 +592,13 @@ export default function RoomManagementClient() {
           onSave={editRoom ? handleEditRoom : handleAddRoom}
         />
       )}
+      <ExportDialog
+        description="Export the room records currently shown on this page as CSV or a print view."
+        isOpen={showExportDialog}
+        onClose={() => setShowExportDialog(false)}
+        onExport={handleExport}
+        title="Export rooms"
+      />
     </div>
   );
 }

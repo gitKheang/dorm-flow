@@ -4,7 +4,9 @@ import type { DormPlan, PremiumFeature } from "@/lib/plans";
 import type {
   ActivityItem,
   Invoice,
+  InvoiceLineItem,
   MaintenanceStatus,
+  MaintenanceAttachment,
   MaintenanceTicket,
   Room,
   Tenant,
@@ -44,9 +46,11 @@ export type MealPlan =
   | "No Meal Plan"
   | "Breakfast Only"
   | "Half Board"
-  | "Full Board";
+  | "Full Board"
+  | "Custom Schedule";
 export type DormStatus = "Active" | "Archived";
 export type MealCategory = "Breakfast" | "Lunch" | "Dinner" | "Snack";
+export type MealSlotCategory = "Breakfast" | "Lunch" | "Dinner";
 export type MealStatus = "Planned" | "In Prep" | "Served";
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 export type PaymentSource = "tenant-portal" | "admin-confirmation" | "seed";
@@ -71,6 +75,7 @@ export type NotificationEventType =
   | "invoice-payment-submitted"
   | "invoice-payment-rejected"
   | "invoice-paid"
+  | "meal-schedule-updated"
   | "chef-meal-status-updated"
   | "module-toggle-changed";
 
@@ -86,10 +91,20 @@ export interface DemoDorm {
 }
 
 export interface ChefMember extends WorkspaceChef {}
+export interface TenantMealSelection {
+  id: string;
+  date: string;
+  dayLabel: string;
+  category: MealSlotCategory;
+  enabled: boolean;
+}
+
 export interface TenantMealPreference {
   tenantId: string;
   plan: MealPlan;
   notes: string;
+  selections?: TenantMealSelection[];
+  updatedAt?: string;
 }
 
 export interface MealItemRecord {
@@ -194,7 +209,532 @@ export interface DemoWorkspaceState {
   mealItems: MealItemRecord[];
 }
 
-export const DEMO_WORKSPACE_STORAGE_KEY = "dormflow-demo-workspace-v2";
+export interface MealScheduleDay {
+  date: string;
+  dayLabel: string;
+  shortLabel: string;
+  isToday: boolean;
+}
+
+export interface MealSelectionCounts {
+  breakfast: number;
+  lunch: number;
+  dinner: number;
+  total: number;
+}
+
+export interface MealSlotAccessState {
+  locked: boolean;
+  reason: "past" | "cutoff" | null;
+  cutoffLabel: string;
+  serviceLabel: string;
+}
+
+export interface InvoiceLineItemSummary {
+  roomRent: number;
+  mealCharges: number;
+  lateFee: number;
+  adjustment: number;
+  total: number;
+}
+
+export const MEAL_SLOT_CATEGORIES: MealSlotCategory[] = [
+  "Breakfast",
+  "Lunch",
+  "Dinner",
+];
+
+const DEFAULT_MEAL_WINDOW_DAYS = 7;
+const DEFAULT_MEAL_CHARGE_RATE = 2.5;
+const DEFAULT_LATE_FEE = 25;
+
+const MEAL_SLOT_TIMINGS: Record<
+  MealSlotCategory,
+  {
+    serviceHour: number;
+    serviceMinute: number;
+    cutoffHour: number;
+    cutoffMinute: number;
+    cutoffDayOffset: number;
+    cutoffLabel: string;
+    serviceLabel: string;
+  }
+> = {
+  Breakfast: {
+    serviceHour: 7,
+    serviceMinute: 30,
+    cutoffHour: 21,
+    cutoffMinute: 0,
+    cutoffDayOffset: -1,
+    cutoffLabel: "Previous day, 9:00 PM",
+    serviceLabel: "7:30 AM service",
+  },
+  Lunch: {
+    serviceHour: 12,
+    serviceMinute: 30,
+    cutoffHour: 9,
+    cutoffMinute: 0,
+    cutoffDayOffset: 0,
+    cutoffLabel: "Same day, 9:00 AM",
+    serviceLabel: "12:30 PM service",
+  },
+  Dinner: {
+    serviceHour: 18,
+    serviceMinute: 30,
+    cutoffHour: 15,
+    cutoffMinute: 0,
+    cutoffDayOffset: 0,
+    cutoffLabel: "Same day, 3:00 PM",
+    serviceLabel: "6:30 PM service",
+  },
+};
+
+function toLocalDateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateKey(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day] = match;
+  const parsed = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    0,
+    0,
+    0,
+    0,
+  );
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getDayLabel(value: Date) {
+  return value.toLocaleDateString("en-US", {
+    weekday: "long",
+  });
+}
+
+function getShortDayLabel(value: Date) {
+  return value.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function buildMealSelectionId(date: string, category: MealSlotCategory) {
+  return `${date}-${category.toLowerCase()}`;
+}
+
+function defaultSelectionForPlan(
+  plan: MealPlan | undefined,
+  category: MealSlotCategory,
+) {
+  if (plan === "Breakfast Only") {
+    return category === "Breakfast";
+  }
+
+  if (plan === "Half Board") {
+    return category === "Lunch" || category === "Dinner";
+  }
+
+  if (plan === "Full Board") {
+    return true;
+  }
+
+  return false;
+}
+
+export function buildMealScheduleWindow(
+  anchorDate = new Date(),
+  days = DEFAULT_MEAL_WINDOW_DAYS,
+): MealScheduleDay[] {
+  const start = new Date(anchorDate);
+  start.setHours(0, 0, 0, 0);
+
+  return Array.from({ length: days }, (_, index) => {
+    const current = new Date(start);
+    current.setDate(start.getDate() + index);
+    return {
+      date: toLocalDateKey(current),
+      dayLabel: getDayLabel(current),
+      shortLabel: getShortDayLabel(current),
+      isToday: index === 0,
+    };
+  });
+}
+
+function buildSelectionFallbackMap(selections: TenantMealSelection[]) {
+  const sortedSelections = [...selections].sort((left, right) =>
+    left.date.localeCompare(right.date),
+  );
+  return sortedSelections.reduce((map, selection) => {
+    const key = `${selection.dayLabel}:${selection.category}`;
+    map.set(key, selection.enabled);
+    return map;
+  }, new Map<string, boolean>());
+}
+
+export function normalizeMealSelections(
+  preference: Pick<TenantMealPreference, "plan" | "selections"> | undefined,
+  anchorDate = new Date(),
+  days = DEFAULT_MEAL_WINDOW_DAYS,
+): TenantMealSelection[] {
+  const schedule = buildMealScheduleWindow(anchorDate, days);
+  const existingSelections = preference?.selections ?? [];
+  const existingById = new Map(
+    existingSelections.map((selection) => [selection.id, selection]),
+  );
+  const fallbackByWeekday = buildSelectionFallbackMap(existingSelections);
+
+  return schedule.flatMap((day) =>
+    MEAL_SLOT_CATEGORIES.map((category) => {
+      const id = buildMealSelectionId(day.date, category);
+      const existingSelection = existingById.get(id);
+      const fallbackEnabled = fallbackByWeekday.get(
+        `${day.dayLabel}:${category}`,
+      );
+
+      return {
+        id,
+        date: day.date,
+        dayLabel: day.dayLabel,
+        category,
+        enabled:
+          existingSelection?.enabled ??
+          fallbackEnabled ??
+          defaultSelectionForPlan(preference?.plan, category),
+      };
+    }),
+  );
+}
+
+export function deriveMealPlanFromSelections(
+  selections: TenantMealSelection[],
+): MealPlan {
+  const breakfastSelections = selections.filter(
+    (selection) => selection.category === "Breakfast",
+  );
+  const lunchSelections = selections.filter(
+    (selection) => selection.category === "Lunch",
+  );
+  const dinnerSelections = selections.filter(
+    (selection) => selection.category === "Dinner",
+  );
+
+  const enabledBreakfast = breakfastSelections.filter(
+    (selection) => selection.enabled,
+  ).length;
+  const enabledLunch = lunchSelections.filter(
+    (selection) => selection.enabled,
+  ).length;
+  const enabledDinner = dinnerSelections.filter(
+    (selection) => selection.enabled,
+  ).length;
+  const enabledTotal = enabledBreakfast + enabledLunch + enabledDinner;
+
+  if (enabledTotal === 0) {
+    return "No Meal Plan";
+  }
+
+  const allBreakfastEnabled =
+    breakfastSelections.length > 0 &&
+    enabledBreakfast === breakfastSelections.length;
+  const allLunchEnabled =
+    lunchSelections.length > 0 && enabledLunch === lunchSelections.length;
+  const allDinnerEnabled =
+    dinnerSelections.length > 0 && enabledDinner === dinnerSelections.length;
+
+  if (allBreakfastEnabled && enabledLunch === 0 && enabledDinner === 0) {
+    return "Breakfast Only";
+  }
+
+  if (
+    !allBreakfastEnabled &&
+    enabledBreakfast === 0 &&
+    allLunchEnabled &&
+    allDinnerEnabled
+  ) {
+    return "Half Board";
+  }
+
+  if (allBreakfastEnabled && allLunchEnabled && allDinnerEnabled) {
+    return "Full Board";
+  }
+
+  return "Custom Schedule";
+}
+
+export function countEnabledMealSelections(
+  selections: TenantMealSelection[],
+  category?: MealSlotCategory,
+) {
+  return selections.filter(
+    (selection) =>
+      selection.enabled && (!category || selection.category === category),
+  ).length;
+}
+
+export function getMealSelectionCountsForDay(
+  preferences: TenantMealPreference[],
+  dayLabel: string,
+  anchorDate = new Date(),
+): MealSelectionCounts {
+  return preferences.reduce<MealSelectionCounts>(
+    (counts, preference) => {
+      const selections = normalizeMealSelections(preference, anchorDate);
+      selections.forEach((selection) => {
+        if (!selection.enabled || selection.dayLabel !== dayLabel) {
+          return;
+        }
+
+        if (selection.category === "Breakfast") {
+          counts.breakfast += 1;
+        } else if (selection.category === "Lunch") {
+          counts.lunch += 1;
+        } else if (selection.category === "Dinner") {
+          counts.dinner += 1;
+        }
+        counts.total += 1;
+      });
+      return counts;
+    },
+    {
+      breakfast: 0,
+      lunch: 0,
+      dinner: 0,
+      total: 0,
+    },
+  );
+}
+
+export function getMealSlotAccessState(
+  selection: Pick<TenantMealSelection, "date" | "category">,
+  referenceDate = new Date(),
+): MealSlotAccessState {
+  const baseDate = parseLocalDateKey(selection.date);
+  const timing = MEAL_SLOT_TIMINGS[selection.category];
+
+  if (!baseDate) {
+    return {
+      locked: false,
+      reason: null,
+      cutoffLabel: timing.cutoffLabel,
+      serviceLabel: timing.serviceLabel,
+    };
+  }
+
+  const serviceAt = new Date(baseDate);
+  serviceAt.setHours(timing.serviceHour, timing.serviceMinute, 0, 0);
+
+  const cutoffAt = new Date(baseDate);
+  cutoffAt.setDate(cutoffAt.getDate() + timing.cutoffDayOffset);
+  cutoffAt.setHours(timing.cutoffHour, timing.cutoffMinute, 0, 0);
+
+  if (referenceDate.getTime() >= serviceAt.getTime()) {
+    return {
+      locked: true,
+      reason: "past",
+      cutoffLabel: timing.cutoffLabel,
+      serviceLabel: timing.serviceLabel,
+    };
+  }
+
+  if (referenceDate.getTime() >= cutoffAt.getTime()) {
+    return {
+      locked: true,
+      reason: "cutoff",
+      cutoffLabel: timing.cutoffLabel,
+      serviceLabel: timing.serviceLabel,
+    };
+  }
+
+  return {
+    locked: false,
+    reason: null,
+    cutoffLabel: timing.cutoffLabel,
+    serviceLabel: timing.serviceLabel,
+  };
+}
+
+export function summarizeInvoiceLineItems(
+  lineItems: InvoiceLineItem[] | undefined,
+): InvoiceLineItemSummary {
+  return (lineItems ?? []).reduce<InvoiceLineItemSummary>(
+    (summary, lineItem) => {
+      if (lineItem.type === "roomRent") {
+        summary.roomRent += lineItem.amount;
+      } else if (lineItem.type === "mealCharges") {
+        summary.mealCharges += lineItem.amount;
+      } else if (lineItem.type === "lateFee") {
+        summary.lateFee += lineItem.amount;
+      } else if (lineItem.type === "adjustment") {
+        summary.adjustment += lineItem.amount;
+      }
+
+      summary.total += lineItem.amount;
+      return summary;
+    },
+    {
+      roomRent: 0,
+      mealCharges: 0,
+      lateFee: 0,
+      adjustment: 0,
+      total: 0,
+    },
+  );
+}
+
+function createInvoiceLineItem(input: {
+  invoiceId: string;
+  type: InvoiceLineItem["type"];
+  label: string;
+  amount: number;
+  quantity?: number;
+  unitPrice?: number;
+  description?: string;
+}): InvoiceLineItem {
+  return {
+    id: `${input.invoiceId}-${input.type}-${Math.abs(input.amount)
+      .toString()
+      .replace(/\./g, "-")}`,
+    type: input.type,
+    label: input.label,
+    amount: input.amount,
+    quantity: input.quantity,
+    unitPrice: input.unitPrice,
+    description: input.description,
+  };
+}
+
+function roundCurrency(value: number) {
+  return Number(value.toFixed(2));
+}
+
+export function buildInvoiceLineItems(input: {
+  invoiceId: string;
+  roomRent: number;
+  mealSelectionsCount: number;
+  status: Invoice["status"];
+}): InvoiceLineItem[] {
+  const lineItems: InvoiceLineItem[] = [
+    createInvoiceLineItem({
+      invoiceId: input.invoiceId,
+      type: "roomRent",
+      label: "Room rent",
+      amount: roundCurrency(input.roomRent),
+    }),
+  ];
+
+  if (input.mealSelectionsCount > 0) {
+    lineItems.push(
+      createInvoiceLineItem({
+        invoiceId: input.invoiceId,
+        type: "mealCharges",
+        label: "Meal charges",
+        amount: roundCurrency(
+          input.mealSelectionsCount * DEFAULT_MEAL_CHARGE_RATE,
+        ),
+        quantity: input.mealSelectionsCount,
+        unitPrice: DEFAULT_MEAL_CHARGE_RATE,
+        description: `${input.mealSelectionsCount} meals x $${DEFAULT_MEAL_CHARGE_RATE.toFixed(2)}`,
+      }),
+    );
+  }
+
+  if (input.status === "Overdue") {
+    lineItems.push(
+      createInvoiceLineItem({
+        invoiceId: input.invoiceId,
+        type: "lateFee",
+        label: "Late fee",
+        amount: DEFAULT_LATE_FEE,
+        description: "Applied after the due date passed without settlement.",
+      }),
+    );
+  }
+
+  return lineItems;
+}
+
+function hydrateInvoiceRecord(
+  invoice: WorkspaceInvoice,
+  rooms: WorkspaceRoom[],
+  preferences: TenantMealPreference[],
+): WorkspaceInvoice {
+  const room =
+    rooms.find(
+      (candidate) =>
+        candidate.id !== "unassigned" &&
+        candidate.dormId === invoice.dormId &&
+        candidate.roomNumber === invoice.roomNumber,
+    ) ??
+    rooms.find(
+      (candidate) =>
+        candidate.dormId === invoice.dormId &&
+        candidate.assignedTenants.includes(invoice.tenantName),
+    );
+  const roomRent = room?.rentPerMonth ?? invoice.amount;
+  const preference = preferences.find(
+    (candidate) => candidate.tenantId === invoice.tenantId,
+  );
+  const normalizedSelections = normalizeMealSelections(preference);
+  const mealSelectionsCount = countEnabledMealSelections(normalizedSelections);
+  const lineItems =
+    invoice.lineItems && invoice.lineItems.length > 0
+      ? invoice.lineItems
+      : buildInvoiceLineItems({
+          invoiceId: invoice.id,
+          roomRent,
+          mealSelectionsCount,
+          status: invoice.status,
+        });
+
+  return {
+    ...invoice,
+    lineItems,
+    amount: roundCurrency(summarizeInvoiceLineItems(lineItems).total),
+  };
+}
+
+function hydrateInvoiceRecords(
+  invoices: WorkspaceInvoice[],
+  rooms: WorkspaceRoom[],
+  preferences: TenantMealPreference[],
+) {
+  return invoices.map((invoice) =>
+    hydrateInvoiceRecord(invoice, rooms, preferences),
+  );
+}
+
+function hydrateMealPreferences(preferences: TenantMealPreference[]) {
+  return preferences.map((preference) => {
+    const selections = normalizeMealSelections(preference);
+    return {
+      ...preference,
+      plan: deriveMealPlanFromSelections(selections),
+      selections,
+      updatedAt: preference.updatedAt ?? new Date().toISOString(),
+    };
+  });
+}
+
+function hydrateMaintenanceTickets(tickets: WorkspaceMaintenanceTicket[]) {
+  return tickets.map((ticket) => ({
+    ...ticket,
+    attachments:
+      ticket.attachments?.map((attachment) => ({ ...attachment })) ?? [],
+  }));
+}
+
+export const DEMO_WORKSPACE_STORAGE_KEY = "dormflow-demo-workspace-v3";
 
 export const DEFAULT_ENABLED_MODULES: EnabledModule[] = [
   ...DEFAULT_PREMIUM_DORM_MODULES,
@@ -298,7 +838,10 @@ function buildSeedPayments(
   const payments: WorkspacePaymentRecord[] = invoices
     .filter((invoice) => invoice.status === "Paid")
     .map((invoice, index) => {
-      const activityTimestamp = findPaymentActivityTimestamp(invoice, activityFeed);
+      const activityTimestamp = findPaymentActivityTimestamp(
+        invoice,
+        activityFeed,
+      );
       const initiatedAt = activityTimestamp
         ? toIsoDateTime(activityTimestamp)
         : toIsoDateTime(invoice.issuedDate, 10);
@@ -458,19 +1001,30 @@ export const DEFAULT_WORKSPACE_STATE: DemoWorkspaceState = {
   rooms: DEMO_ROOMS,
   tenants: DEMO_TENANTS,
   chefs: DEMO_CHEFS,
-  invoices: DEMO_INVOICES,
-  payments: buildSeedPayments(DEMO_INVOICES, DEMO_ACTIVITY_FEED),
-  maintenanceTickets: DEMO_MAINTENANCE_TICKETS,
+  invoices: hydrateInvoiceRecords(
+    DEMO_INVOICES,
+    DEMO_ROOMS,
+    hydrateMealPreferences(DEMO_TENANT_MEAL_PREFERENCES),
+  ),
+  payments: buildSeedPayments(
+    hydrateInvoiceRecords(
+      DEMO_INVOICES,
+      DEMO_ROOMS,
+      hydrateMealPreferences(DEMO_TENANT_MEAL_PREFERENCES),
+    ),
+    DEMO_ACTIVITY_FEED,
+  ),
+  maintenanceTickets: hydrateMaintenanceTickets(DEMO_MAINTENANCE_TICKETS),
   maintenanceStatusHistory: buildDefaultMaintenanceHistory(
-    DEMO_MAINTENANCE_TICKETS,
+    hydrateMaintenanceTickets(DEMO_MAINTENANCE_TICKETS),
   ),
   activityFeed: DEMO_ACTIVITY_FEED,
   notifications: buildSeedNotifications(
     DEMO_ACTIVITY_FEED,
     DEMO_TENANTS,
-    DEMO_MAINTENANCE_TICKETS,
+    hydrateMaintenanceTickets(DEMO_MAINTENANCE_TICKETS),
   ),
-  tenantMealPreferences: DEMO_TENANT_MEAL_PREFERENCES,
+  tenantMealPreferences: hydrateMealPreferences(DEMO_TENANT_MEAL_PREFERENCES),
   mealItems: DEMO_MEALS,
 };
 
@@ -496,12 +1050,18 @@ function cloneDefaultWorkspace(): DemoWorkspaceState {
     chefs: DEFAULT_WORKSPACE_STATE.chefs.map((chef) => ({ ...chef })),
     invoices: DEFAULT_WORKSPACE_STATE.invoices.map((invoice) => ({
       ...invoice,
+      lineItems: invoice.lineItems?.map((lineItem) => ({ ...lineItem })),
     })),
     payments: DEFAULT_WORKSPACE_STATE.payments.map((payment) => ({
       ...payment,
     })),
     maintenanceTickets: DEFAULT_WORKSPACE_STATE.maintenanceTickets.map(
-      (ticket) => ({ ...ticket }),
+      (ticket) => ({
+        ...ticket,
+        attachments: ticket.attachments?.map((attachment) => ({
+          ...attachment,
+        })),
+      }),
     ),
     maintenanceStatusHistory:
       DEFAULT_WORKSPACE_STATE.maintenanceStatusHistory.map((entry) => ({
@@ -518,7 +1078,12 @@ function cloneDefaultWorkspace(): DemoWorkspaceState {
       }),
     ),
     tenantMealPreferences: DEFAULT_WORKSPACE_STATE.tenantMealPreferences.map(
-      (preference) => ({ ...preference }),
+      (preference) => ({
+        ...preference,
+        selections: preference.selections?.map((selection) => ({
+          ...selection,
+        })),
+      }),
     ),
     mealItems: DEFAULT_WORKSPACE_STATE.mealItems.map((meal) => ({
       ...meal,
@@ -529,6 +1094,10 @@ function cloneDefaultWorkspace(): DemoWorkspaceState {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
 }
 
 function isEnabledModule(value: unknown): value is EnabledModule {
@@ -657,6 +1226,55 @@ function isRoom(value: unknown): value is WorkspaceRoom {
   );
 }
 
+function isMaintenanceAttachment(
+  value: unknown,
+): value is MaintenanceAttachment {
+  if (!value || typeof value !== "object") return false;
+  const attachment = value as Partial<MaintenanceAttachment>;
+  return (
+    isString(attachment.id) &&
+    isString(attachment.name) &&
+    isString(attachment.type) &&
+    typeof attachment.size === "number" &&
+    isString(attachment.dataUrl)
+  );
+}
+
+function isMealSlotCategory(value: unknown): value is MealSlotCategory {
+  return value === "Breakfast" || value === "Lunch" || value === "Dinner";
+}
+
+function isMealSelection(value: unknown): value is TenantMealSelection {
+  if (!value || typeof value !== "object") return false;
+  const selection = value as Partial<TenantMealSelection>;
+  return (
+    isString(selection.id) &&
+    isString(selection.date) &&
+    isString(selection.dayLabel) &&
+    isMealSlotCategory(selection.category) &&
+    isBoolean(selection.enabled)
+  );
+}
+
+function isInvoiceLineItem(value: unknown): value is InvoiceLineItem {
+  if (!value || typeof value !== "object") return false;
+  const lineItem = value as Partial<InvoiceLineItem>;
+  return (
+    isString(lineItem.id) &&
+    (lineItem.type === "roomRent" ||
+      lineItem.type === "mealCharges" ||
+      lineItem.type === "lateFee" ||
+      lineItem.type === "adjustment") &&
+    isString(lineItem.label) &&
+    typeof lineItem.amount === "number" &&
+    (lineItem.quantity === undefined ||
+      typeof lineItem.quantity === "number") &&
+    (lineItem.unitPrice === undefined ||
+      typeof lineItem.unitPrice === "number") &&
+    (lineItem.description === undefined || isString(lineItem.description))
+  );
+}
+
 function isInvoice(value: unknown): value is WorkspaceInvoice {
   if (!value || typeof value !== "object") return false;
   const invoice = value as Partial<WorkspaceInvoice>;
@@ -674,6 +1292,9 @@ function isInvoice(value: unknown): value is WorkspaceInvoice {
       invoice.status === "Overdue" ||
       invoice.status === "Draft") &&
     isString(invoice.period) &&
+    (invoice.lineItems === undefined ||
+      (Array.isArray(invoice.lineItems) &&
+        invoice.lineItems.every(isInvoiceLineItem))) &&
     (invoice.billingPeriodKey === undefined ||
       isString(invoice.billingPeriodKey))
   );
@@ -747,7 +1368,10 @@ function isMaintenanceTicket(
     isString(ticket.submittedDate) &&
     isString(ticket.updatedDate) &&
     isString(ticket.description) &&
-    isString(ticket.category)
+    isString(ticket.category) &&
+    (ticket.attachments === undefined ||
+      (Array.isArray(ticket.attachments) &&
+        ticket.attachments.every(isMaintenanceAttachment)))
   );
 }
 
@@ -820,6 +1444,7 @@ function isNotification(value: unknown): value is WorkspaceNotificationRecord {
       notification.eventType === "invoice-payment-submitted" ||
       notification.eventType === "invoice-payment-rejected" ||
       notification.eventType === "invoice-paid" ||
+      notification.eventType === "meal-schedule-updated" ||
       notification.eventType === "chef-meal-status-updated" ||
       notification.eventType === "module-toggle-changed") &&
     isString(notification.message) &&
@@ -843,7 +1468,12 @@ function isMealPreference(value: unknown): value is TenantMealPreference {
     (preference.plan === "No Meal Plan" ||
       preference.plan === "Breakfast Only" ||
       preference.plan === "Half Board" ||
-      preference.plan === "Full Board")
+      preference.plan === "Full Board" ||
+      preference.plan === "Custom Schedule") &&
+    (preference.selections === undefined ||
+      (Array.isArray(preference.selections) &&
+        preference.selections.every(isMealSelection))) &&
+    (preference.updatedAt === undefined || isString(preference.updatedAt))
   );
 }
 
@@ -929,10 +1559,7 @@ export function isPremiumDorm(
 }
 
 export function canToggleModule(
-  workspace: Pick<
-    DemoWorkspaceState,
-    "currentDormId" | "dormPlans"
-  >,
+  workspace: Pick<DemoWorkspaceState, "currentDormId" | "dormPlans">,
   dormId: string,
   module: EnabledModule,
 ): boolean {
@@ -1134,23 +1761,29 @@ export function restoreDemoWorkspace(
     );
     const dormPlans = resolveDormPlans(
       dorms,
-      filterOrDefault(
-        parsed.dormPlans,
-        fallback.dormPlans,
-        isDormPlanSettings,
-      ),
+      filterOrDefault(parsed.dormPlans, fallback.dormPlans, isDormPlanSettings),
       "premium",
     );
+    const rooms = filterOrDefault(parsed.rooms, fallback.rooms, isRoom);
     const tenants = filterOrDefault(parsed.tenants, fallback.tenants, isTenant);
-    const invoices = filterOrDefault(
-      parsed.invoices,
-      fallback.invoices,
-      isInvoice,
+    const tenantMealPreferences = hydrateMealPreferences(
+      filterOrDefault(
+        parsed.tenantMealPreferences,
+        fallback.tenantMealPreferences,
+        isMealPreference,
+      ),
     );
-    const maintenanceTickets = filterOrDefault(
-      parsed.maintenanceTickets,
-      fallback.maintenanceTickets,
-      isMaintenanceTicket,
+    const invoices = hydrateInvoiceRecords(
+      filterOrDefault(parsed.invoices, fallback.invoices, isInvoice),
+      rooms,
+      tenantMealPreferences,
+    );
+    const maintenanceTickets = hydrateMaintenanceTickets(
+      filterOrDefault(
+        parsed.maintenanceTickets,
+        fallback.maintenanceTickets,
+        isMaintenanceTicket,
+      ),
     );
     const activityFeed = filterOrDefault(
       parsed.activityFeed,
@@ -1180,7 +1813,7 @@ export function restoreDemoWorkspace(
       dormModules,
       dormPlans,
       dorms,
-      rooms: filterOrDefault(parsed.rooms, fallback.rooms, isRoom),
+      rooms,
       tenants,
       chefs: filterOrDefault(parsed.chefs, fallback.chefs, isChef),
       invoices,
@@ -1199,11 +1832,7 @@ export function restoreDemoWorkspace(
         tenants,
         maintenanceTickets,
       ),
-      tenantMealPreferences: filterOrDefault(
-        parsed.tenantMealPreferences,
-        fallback.tenantMealPreferences,
-        isMealPreference,
-      ),
+      tenantMealPreferences,
       mealItems: filterOrDefault(
         parsed.mealItems,
         fallback.mealItems,
